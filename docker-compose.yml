@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  sentinel:
+    build: .
+    container_name: sentinel
+    volumes:
+      - ./reports:/app/reports
+      - ./examples:/app/examples:ro
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    command: scan --swagger /app/examples/sample_api.yaml --target http://vuln-api:8000 -o /app/reports/report.md
+
+  vuln-api:
+    build:
+      context: ./test_server
+      dockerfile: Dockerfile
+    container_name: vulnerable-api
+    ports:
+      - "8000:8000"
