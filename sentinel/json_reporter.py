@@ -5,7 +5,7 @@ Generates machine-readable reports for CI/CD integration.
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Any
 
@@ -164,7 +164,7 @@ class SARIFReporter:
                     "invocations": [
                         {
                             "executionSuccessful": True,
-                            "endTimeUtc": datetime.utcnow().isoformat() + "Z",
+                            "endTimeUtc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                             "measurement": {
                                 "duration": scan_result.duration_seconds
                             }

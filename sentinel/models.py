@@ -15,7 +15,7 @@ v2.0 Updates:
 
 from enum import Enum
 from typing import Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class HttpMethod(str, Enum):
@@ -326,8 +326,7 @@ class JSONSchema(BaseModel):
     # Reference
     ref: Optional[str] = Field(None, alias="$ref")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ParsedSpec(BaseModel):
