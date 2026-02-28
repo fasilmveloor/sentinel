@@ -376,6 +376,8 @@ class CommandInjectionAttacker:
         if injection_type == 'time_based':
             severity = Severity.HIGH
         
+        duration_str = f"{result.duration_ms:.0f}ms" if result.duration_ms else "N/A"
+        
         return Vulnerability(
             endpoint=endpoint,
             attack_type=AttackType.CMD_INJECTION,
@@ -394,7 +396,7 @@ class CommandInjectionAttacker:
                 f"Payload: {result.payload}\n"
                 f"Injection Type: {injection_type}\n"
                 f"Response Status: {result.response_status}\n"
-                f"Response Time: {result.duration_ms:.0f}ms"
+                f"Response Time: {duration_str}"
             ),
             recommendation=(
                 "1. Avoid calling system commands with user input\n"

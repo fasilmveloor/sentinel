@@ -280,7 +280,8 @@ Respond in JSON:
         
         response_msg += f"\nTo start the scan, run:\n```bash\n"
         response_msg += f"sentinel scan {scan_params.get('target_url', 'api.yaml')}\n"
-        if scan_params.get('auth', {}).get('type') == 'bearer':
+        auth = scan_params.get('auth') or {}
+        if auth.get('type') == 'bearer':
             response_msg += f"  --auth-type bearer --auth-token {scan_params['auth'].get('value', 'TOKEN')}\n"
         response_msg += "```\n"
         

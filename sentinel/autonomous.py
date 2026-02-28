@@ -453,10 +453,22 @@ Respond in JSON format:
         """Build formatted results information."""
         lines = []
         for i, r in enumerate(results):
+            # Get severity from extra_data if available
+            severity = "unknown"
+            if r.extra_data and 'severity' in r.extra_data:
+                sev = r.extra_data['severity']
+                if hasattr(sev, 'value'):
+                    severity = sev.value
+                else:
+                    severity = str(sev)
+            
+            # Get evidence from response_body or error_message
+            evidence = r.response_body[:100] if r.response_body else r.error_message or 'N/A'
+            
             lines.append(
                 f"[{i}] {r.attack_type.value} on {r.endpoint.path}\n"
-                f"    Severity: {r.severity.value}, Success: {r.success}\n"
-                f"    Evidence: {r.evidence[:100] if r.evidence else 'N/A'}..."
+                f"    Severity: {severity}, Success: {r.success}\n"
+                f"    Evidence: {evidence}..."
             )
         return "\n".join(lines)
     
@@ -482,7 +494,15 @@ Respond in JSON format:
         
         for i, r in enumerate(results):
             if r.success:
-                severity = r.severity.value
+                # Get severity from extra_data or default to HIGH for successful attacks
+                if r.extra_data and 'severity' in r.extra_data:
+                    severity = r.extra_data['severity']
+                    if hasattr(severity, 'value'):
+                        severity = severity.value
+                else:
+                    # Default severity based on attack type
+                    severity = 'high'
+                
                 if severity in summary:
                     summary[severity] += 1
                 

@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Any
 
-from ..models import (
+from sentinel.models import (
     ScanResult,
     Vulnerability,
     Severity,

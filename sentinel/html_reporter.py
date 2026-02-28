@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 import base64
 
-from ..models import (
+from sentinel.models import (
     ScanResult,
     Vulnerability,
     Severity,
