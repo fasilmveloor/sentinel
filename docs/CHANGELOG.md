@@ -120,14 +120,31 @@ Interactive features:
 - Chat interface
 - Autonomous scanning mode
 
-### v1.0.0 - 2026-02-27
-Enterprise features and release:
-- Authentication handler (10+ types)
-- Proxy mode
-- Plugin system
-- Documentation
-- Test suite (30 tests)
-- First stable release
+### v0.6 - 2026-02-27
+Core enhancements and multi-LLM:
+- Parser & Models: Optimized core OpenAPI parsing
+- Agent: Enhanced multi-LLM routing with token limits
+- CLI: Expanded command set (inspect, list-attacks)
+
+### v0.7 - 2026-02-27
+Enterprise Systems:
+- Auth Handler: 10+ authentication types (OAuth2, JWT, AWS Sign, etc.)
+- Proxy Mode: Traffic interception and passive analysis
+- Plugin System: Extensible Python architecture
+
+### v0.8 - 2026-02-27
+Quality Assurance:
+- Test Suite: 30+ comprehensive unit, integration, and e2e tests
+- Mock Servers: Local test API infrastructure
+
+### v0.9 - 2026-02-27
+CI/CD and Packaging:
+- PyPI configuration (pyproject.toml)
+- CI/CD workflow foundations
+- Enhanced environment configuration
+
+### [Unreleased] v1.0.0
+Pending final polish and release features.
 
 ---
 

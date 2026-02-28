@@ -5,13 +5,13 @@
 ## Version Progression
 
 ```
-v0.1 (Feb 22)     v0.2 (Feb 23)     v0.3 (Feb 24)     v0.4 (Feb 25)     v0.5 (Feb 26)     v1.0.0 (Feb 27)
+v0.5 (Feb 26)     v0.6 (Feb 27)     v0.7 (Feb 27)     v0.8 (Feb 27)     v0.9 (Feb 27)   [Unreleased] v1.0.0
      │                 │                 │                 │                 │                 │
      ▼                 ▼                 ▼                 ▼                 ▼                 ▼
 ┌─────────┐      ┌─────────┐      ┌─────────┐      ┌─────────┐      ┌─────────┐      ┌─────────┐
-│ Project │      │ Core    │      │ Attack  │      │ Multi-  │      │ Chat &  │      │ First   │
-│ Setup   │ ───▶ │ Attacks │ ───▶ │ Expand  │ ───▶ │ Agent   │ ───▶ │ Passive │ ───▶ │ Release │
-│         │      │ + AI    │      │ + LLMs  │      │ System  │      │ Scanner │      │         │
+│ Chat &  │      │ Core    │      │ Auth &  │      │ Test    │      │ CI/CD & │      │ Stable  │
+│ Passive │ ───▶ │ Enhance │ ───▶ │ Plugins │ ───▶ │ Suite   │ ───▶ │ Package │ ───▶ │ Release │
+│ Scanner │      │         │      │ + Proxy │      │         │      │         │      │         │
 └─────────┘      └─────────┘      └─────────┘      └─────────┘      └─────────┘      └─────────┘
 ```
 
@@ -128,27 +128,89 @@ v0.1 (Feb 22)     v0.2 (Feb 23)     v0.3 (Feb 24)     v0.4 (Feb 25)     v0.5 (Fe
 
 ---
 
-### v1.0.0 - Feb 27, 2026 (First Release)
+### v0.6 - Feb 27, 2026 (Core Enhancements)
 
-**Focus**: Enterprise features and stability
+**Focus**: AI, CLI and Parsing Refinements
+
+| Component | Files | Description |
+|-----------|-------|-------------|
+| Core Models | `models.py` | Enhanced data models for requests/responses |
+| Parser | `parser.py` | Improved OpenAPI parsing stability |
+| CLI Expansion | `main.py` | Enhanced command line options and attack listing |
+| Agent Logic | `agent.py` | Improved rate limiting and concurrency |
+
+**Lines of Code**: ~8,000
+
+---
+
+### v0.7 - Feb 27, 2026 (Auth & Plugins)
+
+**Focus**: Enterprise features
 
 | Component | Files | Description |
 |-----------|-------|-------------|
 | Auth Handler | `auth.py` | 10+ authentication types |
-| Auth Manager | `auth.py` | Multi-auth coordination |
-| Proxy Mode | `proxy.py` | Traffic interception |
-| Passive Proxy | `proxy.py` | Passive analysis on traffic |
-| Plugin Base | `plugin.py` | Plugin architecture |
-| Plugin Manager | `plugin.py` | Plugin lifecycle |
-| Test Suite | `tests/` | 30 functional tests |
-| Documentation | `*.md` | Complete docs |
+| Proxy Layer | `proxy.py` | Traffic interception & modification |
+| Plugin System | `plugin.py` | Extensible architecture |
 
 **New Features**:
 - 10+ authentication types
 - Traffic interception proxy
-- Plugin system for extensibility
-- Complete test suite
-- Full documentation
+- Extensible plugin system
+
+**Lines of Code**: ~8,800
+
+---
+
+### v0.8 - Feb 27, 2026 (Test Suite)
+
+**Focus**: Quality Assurance
+
+| Component | Files | Description |
+|-----------|-------|-------------|
+| Test Suite | `tests/` | Unit, integration, and e2e tests |
+| Mock APIs | `test_server/`| Local testing infrastructure |
+
+**New Features**:
+- 30 comprehensive functional tests
+- Local vulnerable test APIs
+
+**Lines of Code**: ~9,500
+
+---
+
+### v0.9 - Feb 27, 2026 (Packaging & CI)
+
+**Focus**: Preparation for release
+
+| Component | Files | Description |
+|-----------|-------|-------------|
+| Packaging | `pyproject.toml` | PyPI package definition |
+| Build Config| `Makefile` | Build & automation scripts |
+| GitHub Actions| `.github/` | CI/CD pipelines (planned) |
+
+**New Features**:
+- `pip install` ready packaging
+- Modern python build tools
+
+**Lines of Code**: ~9,800
+
+---
+
+### [Unreleased] v1.0.0 - (Stable Release)
+
+**Focus**: Final polish and advanced benchmarking
+
+| Component | Files | Description |
+|-----------|-------|-------------|
+| Benchmarks | `tests/benchmarks`| Performance and accuracy benchmarks |
+| Postman | `plugins/` | Postman collection support |
+| Docs | `*.md` | Final documentation polish |
+
+**New Features**:
+- Real-world benchmarking against vulnerable apps
+- Postman collection integration
+- Stable v1 API
 
 **Lines of Code**: ~10,000
 
