@@ -1,0 +1,23 @@
+include LICENSE
+include README.md
+include CHANGELOG.md
+include pyproject.toml
+
+recursive-include sentinel *.py *.yaml py.typed
+recursive-include patterns *.yaml
+recursive-include examples *.yaml *.md
+
+prune tests
+prune test_results
+prune test_server
+prune __pycache__
+prune *.pyc
+prune .git
+prune .github
+prune .pytest_cache
+prune .ruff_cache
+prune .mypy_cache
+prune htmlcov
+prune dist
+prune build
+prune *.egg-info
