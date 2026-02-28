@@ -1,0 +1,65 @@
+name: Upload SARIF Results
+
+# This workflow uploads existing SARIF results to GitHub Code Scanning
+# Can be triggered manually or after a security scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      sarif_file:
+        description: 'Path to SARIF file'
+        required: false
+        default: 'test_results/scan_report.sarif'
+      category:
+        description: 'Category for the results'
+        required: false
+        default: 'sentinel-security-scan'
+  workflow_call:
+    inputs:
+      sarif_file:
+        description: 'Path to SARIF file'
+        required: false
+        default: 'test_results/scan_report.sarif'
+        type: string
+      category:
+        description: 'Category for the results'
+        required: false
+        default: 'sentinel-security-scan'
+        type: string
+
+permissions:
+  security-events: write
+  contents: read
+
+jobs:
+  upload-sarif:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate SARIF file exists
+        run: |
+          if [ ! -f "${{ inputs.sarif_file || 'test_results/scan_report.sarif' }}" ]; then
+            echo "Error: SARIF file not found"
+            exit 1
+          fi
+          echo "SARIF file found: ${{ inputs.sarif_file || 'test_results/scan_report.sarif' }}"
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ inputs.sarif_file || 'test_results/scan_report.sarif' }}
+          category: ${{ inputs.category || 'sentinel-security-scan' }}
+
+      - name: Summary
+        run: |
+          echo "### SARIF Upload Complete! :shield:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Results uploaded to GitHub Code Scanning." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **File**: \`${{ inputs.sarif_file || 'test_results/scan_report.sarif' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Category**: \`${{ inputs.category || 'sentinel-security-scan' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "View results in the [Security tab](https://github.com/${{ github.repository }}/security/code-scanning) of your repository." >> $GITHUB_STEP_SUMMARY
