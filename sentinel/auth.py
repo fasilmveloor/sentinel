@@ -21,7 +21,7 @@ import urllib.parse
 from typing import Optional, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -340,8 +340,8 @@ class AuthHandler:
             raise AuthenticationError("PyJWT not installed. Run: pip install PyJWT")
         
         payload = {
-            "iat": datetime.utcnow(),
-            "exp": datetime.utcnow() + timedelta(hours=1),
+            "iat": datetime.now(timezone.utc),
+            "exp": datetime.now(timezone.utc) + timedelta(hours=1),
             **self.config.jwt_payload
         }
         
@@ -361,7 +361,7 @@ class AuthHandler:
         # Note: Full AWS Sig v4 implementation would be done here
         # For now, return basic structure
         return {
-            "X-Amz-Date": datetime.utcnow().strftime("%Y%m%dT%H%M%SZ"),
+            "X-Amz-Date": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
             "Authorization": f"AWS4-HMAC-SHA256 Credential={self.config.aws_access_key}/..."
         }
     
