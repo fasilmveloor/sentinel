@@ -18,6 +18,7 @@ anthropic>=0.18.0
 # Dev dependencies (for testing)
 fastapi==0.109.0
 uvicorn==0.27.0
+PyJWT==2.11.0
 
 # Optional dependencies
 # requests[security]  # For better SSL handling
