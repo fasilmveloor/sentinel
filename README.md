@@ -350,7 +350,7 @@ All features listed in this README are verified by automated tests:
 | **Attack Types** | 8 types | 50+ types |
 | **Passive Checks** | 22 checks | 100+ checks |
 | **Interface** | CLI only | GUI + CLI + HUD |
-| **Maturity** | New (2025) | Mature (2005+) |
+| **Maturity** | New (2026) | Mature (2005+) |
 | **Best For** | AI-assisted API testing | Comprehensive web scanning |
 
 **Recommendation**: Use both. Sentinel for AI-driven API testing, ZAP for comprehensive coverage.

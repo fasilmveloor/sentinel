@@ -81,7 +81,7 @@
 
 ## 🔜 v2.5 - Advanced Detection (Next)
 
-**Target:** Q2 2025
+**Target:** Q2 2026
 
 ### Additional Attack Types
 - [ ] XXE (XML External Entity)
@@ -111,7 +111,7 @@
 
 ## 📋 v3.0 - Multi-Agent Architecture (Future)
 
-**Target:** Q3-Q4 2025
+**Target:** Q3-Q4 2026
 
 > **Note:** This is the most requested feature but requires significant architectural changes.
 
@@ -145,7 +145,7 @@
 
 ## 📋 v4.0 - Proxy & Dashboard (Future)
 
-**Target:** 2026
+**Target:** 2027
 
 ### Proxy Mode
 - [ ] HTTP/HTTPS Proxy Server
@@ -229,5 +229,5 @@ Priority areas for contribution:
 
 ---
 
-*Last Updated: 2025*
+*Last Updated: 2026*
 *Version: 2.0.0*

@@ -16,7 +16,7 @@
 | **AI Integration** | ✅ Native multi-LLM | ❌ None | Sentinel for AI-driven testing |
 | **Ease of Use** | ⭐⭐⭐⭐⭐ Simple CLI | ⭐⭐⭐ Moderate learning curve | Sentinel for beginners |
 | **Coverage** | API-focused | Full web application | ZAP for broader testing |
-| **Maturity** | New project (2025) | Mature (2005+) | ZAP for production stability |
+| **Maturity** | New project (2026) | Mature (2005+) | ZAP for production stability |
 
 ---
 

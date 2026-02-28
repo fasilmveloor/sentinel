@@ -4,7 +4,7 @@ All notable changes to Sentinel are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [1.0.0] - 2025-02-27
+## [1.0.0] - 2026-02-27
 
 ### First Stable Release
 
@@ -88,39 +88,39 @@ After 5 days of development (Feb 22-27), Sentinel v1.0.0 is ready for release. T
 
 ## Development Timeline
 
-### v0.1 - 2025-02-22
+### v0.1 - 2026-02-22
 Project started. Core architecture design:
 - Project structure
 - Pydantic data models
 - OpenAPI parser foundation
 
-### v0.2 - 2025-02-23
+### v0.2 - 2026-02-23
 Core attack modules:
 - SQL Injection
 - Auth Bypass
 - IDOR
 - Basic AI agent with Gemini
 
-### v0.3 - 2025-02-24
+### v0.3 - 2026-02-24
 Attack expansion and multi-LLM:
 - XSS, SSRF, JWT, CMD Injection, Rate Limit
 - OpenAI, Claude, Ollama support
 - Multiple report formats
 - Docker configuration
 
-### v0.4 - 2025-02-25
+### v0.4 - 2026-02-25
 Multi-agent architecture:
 - PlannerAgent, ExecutorAgent, AnalyzerAgent
 - Attack chain discovery
 - Passive scanner foundation
 
-### v0.5 - 2025-02-26
+### v0.5 - 2026-02-26
 Interactive features:
 - Passive scanner (22+ checks)
 - Chat interface
 - Autonomous scanning mode
 
-### v1.0.0 - 2025-02-27
+### v1.0.0 - 2026-02-27
 Enterprise features and release:
 - Authentication handler (10+ types)
 - Proxy mode
