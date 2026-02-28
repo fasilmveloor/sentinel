@@ -497,7 +497,8 @@ class TestAutonomousScanner:
     def test_scanner_initialization(self, scanner):
         """Test scanner initialization."""
         assert scanner.planner is not None
-        assert scanner.executor is not None
+        # Executor is lazily initialized (None until scan() is called)
+        assert scanner.executor is None
         assert scanner.analyzer is not None
         assert scanner.current_scan is None
 
