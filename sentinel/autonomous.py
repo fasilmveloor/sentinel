@@ -12,7 +12,7 @@ v2.5 Feature: Agentic OWASP ZAP
 
 import asyncio
 import time
-from typing import Optional
+from typing import Optional, Any
 from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime
@@ -292,28 +292,46 @@ class ExecutorAgent:
     Handles concurrent execution, rate limiting, and error recovery.
     """
     
-    def __init__(self, max_concurrent: int = 5):
+    def __init__(self, base_url: str, max_concurrent: int = 5, timeout: int = 5):
+        self.base_url = base_url.rstrip('/')
         self.max_concurrent = max_concurrent
-        self.attackers = {
-            AttackType.SQL_INJECTION: SQLInjectionAttacker(),
-            AttackType.AUTH_BYPASS: AuthBypassAttacker(),
-            AttackType.IDOR: IDORAttacker(),
-            AttackType.XSS: XSSAttacker(),
-            AttackType.SSRF: SSRFAttacker(),
-            AttackType.JWT: JWTAttacker(),
-            AttackType.CMD_INJECTION: CommandInjectionAttacker(),
-            AttackType.RATE_LIMIT: RateLimitAttacker(),
-        }
+        self.timeout = timeout
+        self._attackers_cache: dict[AttackType, Any] = {}
         self.total_requests = 0
+    
+    def _get_attacker(self, attack_type: AttackType):
+        """Get or create an attacker instance for the given attack type."""
+        if attack_type not in self._attackers_cache:
+            if attack_type == AttackType.SQL_INJECTION:
+                self._attackers_cache[attack_type] = SQLInjectionAttacker(self.base_url, self.timeout)
+            elif attack_type == AttackType.AUTH_BYPASS:
+                self._attackers_cache[attack_type] = AuthBypassAttacker(self.base_url, self.timeout)
+            elif attack_type == AttackType.IDOR:
+                self._attackers_cache[attack_type] = IDORAttacker(self.base_url, self.timeout)
+            elif attack_type == AttackType.XSS:
+                self._attackers_cache[attack_type] = XSSAttacker(self.base_url, self.timeout)
+            elif attack_type == AttackType.SSRF:
+                self._attackers_cache[attack_type] = SSRFAttacker(self.base_url, self.timeout)
+            elif attack_type == AttackType.JWT:
+                self._attackers_cache[attack_type] = JWTAttacker(self.base_url, self.timeout)
+            elif attack_type == AttackType.CMD_INJECTION:
+                self._attackers_cache[attack_type] = CommandInjectionAttacker(self.base_url, self.timeout)
+            elif attack_type == AttackType.RATE_LIMIT:
+                self._attackers_cache[attack_type] = RateLimitAttacker(self.base_url, self.timeout)
+        return self._attackers_cache.get(attack_type)
     
     async def execute_plan(
         self,
         plan: ScanPlan,
-        base_url: str,
+        base_url: str = None,  # Optional, uses self.base_url if not provided
         headers: Optional[dict] = None,
         progress_callback: Optional[callable] = None
     ) -> list[AttackResult]:
         """Execute the scan plan asynchronously."""
+        
+        # Use instance base_url if not provided
+        if base_url:
+            self.base_url = base_url.rstrip('/')
         
         results = []
         semaphore = asyncio.Semaphore(self.max_concurrent)
@@ -332,15 +350,22 @@ class ExecutorAgent:
                 for attack_type_str in attack_types:
                     try:
                         attack_type = AttackType(attack_type_str)
-                        attacker = self.attackers.get(attack_type)
+                        attacker = self._get_attacker(attack_type)
                         
                         if attacker:
-                            # Run attack in thread pool
+                            # Extract auth token from headers if present
+                            auth_token = None
+                            if headers:
+                                auth_header = headers.get('Authorization', '')
+                                if auth_header.startswith('Bearer '):
+                                    auth_token = auth_header[7:]
+                            
+                            # Run attack in thread pool with correct signature
+                            # Most attackers use: attack(endpoint, auth_token/parameters_to_test)
                             attack_result = await asyncio.to_thread(
                                 attacker.attack,
-                                base_url,
                                 endpoint,
-                                headers or {}
+                                auth_token  # Pass auth token for auth-based attacks
                             )
                             
                             if isinstance(attack_result, list):
@@ -565,14 +590,19 @@ class AutonomousScanner:
         self,
         ai_provider: LLMProvider = LLMProvider.GEMINI,
         api_key: Optional[str] = None,
-        max_concurrent: int = 5
+        max_concurrent: int = 5,
+        base_url: Optional[str] = None,
+        timeout: int = 5
     ):
         # Initialize AI agent
         self.ai_agent = create_agent(ai_provider, api_key)
+        self.base_url = base_url.rstrip('/') if base_url else None
+        self.max_concurrent = max_concurrent
+        self.timeout = timeout
         
-        # Initialize sub-agents
+        # Initialize sub-agents (executor will be created on scan if base_url not provided)
         self.planner = PlannerAgent(self.ai_agent)
-        self.executor = ExecutorAgent(max_concurrent)
+        self.executor: Optional[ExecutorAgent] = None
         self.analyzer = AnalyzerAgent(self.ai_agent)
         
         # State
@@ -597,6 +627,10 @@ class AutonomousScanner:
         Returns:
             AutonomousScanResult with all findings
         """
+        
+        # Initialize/update executor with base_url
+        self.base_url = base_url.rstrip('/')
+        self.executor = ExecutorAgent(self.base_url, self.max_concurrent, self.timeout)
         
         # Initialize scan result
         result = AutonomousScanResult(

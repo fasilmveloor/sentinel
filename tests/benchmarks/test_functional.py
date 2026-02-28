@@ -42,31 +42,50 @@ def create_test_endpoints():
             path="/api/users",
             method=HttpMethod.GET,
             parameters=[Parameter(name="id", location="query", required=True)],
-            requires_auth=True,
+            security=[{"bearer": []}],  # Requires auth
             summary="Get user by ID"
         ),
         Endpoint(
             path="/api/admin",
             method=HttpMethod.DELETE,
             parameters=[Parameter(name="user_id", location="path", required=True)],
-            requires_auth=True,
+            security=[{"bearer": []}],  # Requires auth
             summary="Delete admin user"
         ),
         Endpoint(
             path="/api/search",
             method=HttpMethod.GET,
             parameters=[Parameter(name="q", location="query", required=False)],
-            requires_auth=False,
+            security=None,  # Public endpoint
             summary="Search endpoint"
         ),
         Endpoint(
             path="/api/webhook",
             method=HttpMethod.POST,
             parameters=[Parameter(name="callback_url", location="body", required=True)],
-            requires_auth=True,
+            security=[{"apikey": []}],  # Requires auth
             summary="Webhook callback"
         ),
     ]
+
+
+def test_requires_auth_computed():
+    """VERIFY: requires_auth is computed correctly from security field."""
+    endpoints = create_test_endpoints()
+    
+    # First endpoint has security, should require auth
+    assert endpoints[0].requires_auth == True, "/api/users should require auth"
+    
+    # Second endpoint has security, should require auth
+    assert endpoints[1].requires_auth == True, "/api/admin should require auth"
+    
+    # Third endpoint has no security, should NOT require auth
+    assert endpoints[2].requires_auth == False, "/api/search should NOT require auth"
+    
+    # Fourth endpoint has security, should require auth
+    assert endpoints[3].requires_auth == True, "/api/webhook should require auth"
+    
+    print("✅ requires_auth computed correctly from security field")
 
 
 # ============================================================================
@@ -424,3 +443,4 @@ def test_all_claims_verified():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
+    
