@@ -640,9 +640,7 @@ def autonomous(
                 report_content += f"### {chain.name}\n\n"
                 report_content += f"**Severity**: {chain.severity.value}\n\n"
                 report_content += f"{chain.description}\n\n"
-                report_content += f"**Exploit Path**:\n```
-{chain.exploit_path}
-```\n\n"
+                report_content += f"**Exploit Path**:\n```\n{chain.exploit_path}\n```\n\n"
         
         with open(output, 'w') as f:
             f.write(report_content)
