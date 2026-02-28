@@ -71,6 +71,30 @@ from .plugin import (
     create_attack_plugin_template, create_passive_plugin_template
 )
 
+# v1.0.0 Postman Collection imports
+from .postman import (
+    PostmanParser,
+    PostmanGenerator,
+    PostmanParseError,
+    parse_postman,
+    generate_postman_collection,
+    convert_openapi_to_postman
+)
+
+# v1.0.0 Benchmark Framework imports
+from .benchmarks import (
+    BenchmarkTarget,
+    BenchmarkCategory,
+    BenchmarkRunner,
+    BenchmarkResult,
+    BenchmarkReport,
+    GroundTruthDatabase,
+    run_crapi_benchmark,
+    run_juice_shop_benchmark,
+    run_owasp_benchmark,
+    run_all_benchmarks
+)
+
 
 console = Console()
 
@@ -1264,6 +1288,571 @@ def auth(
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         sys.exit(1)
+
+
+# ==================== v1.0.0 POSTMAN COLLECTION COMMANDS ====================
+
+@cli.group()
+def postman():
+    """Postman Collection import/export commands."""
+    pass
+
+
+@postman.command('import')
+@click.argument('collection', type=click.Path(exists=True))
+@click.option(
+    '--target', '-t',
+    help='Target API base URL for scanning'
+)
+@click.option(
+    '--output', '-o',
+    help='Output file for scan report'
+)
+@click.option(
+    '--scan',
+    is_flag=True,
+    help='Run security scan after importing'
+)
+def import_collection(collection: str, target: Optional[str], output: Optional[str], scan: bool):
+    """
+    Import a Postman collection for security testing.
+    
+    Parses a Postman Collection v2.0/v2.1 file and extracts endpoints
+    for security analysis.
+    
+    Example:
+        sentinel postman import my_collection.json
+        sentinel postman import my_collection.json --target https://api.example.com --scan
+    """
+    print_banner()
+    console.print(f"\n📦 [bold]Importing Postman Collection[/bold]")
+    console.print(f"   File: {collection}\n")
+    
+    try:
+        # Parse the collection
+        parser = PostmanParser(collection)
+        endpoints = parser.parse()
+        full_info = parser.parse_full()
+        
+        # Display collection info
+        info = full_info['info']
+        console.print(f"\n[bold]Collection: {info['name']}[/bold]")
+        if info.get('description'):
+            console.print(f"Description: {info['description']}")
+        console.print(f"Version: {parser.version}")
+        console.print(f"Endpoints found: {len(endpoints)}")
+        
+        if full_info.get('variables'):
+            console.print(f"Variables: {len(full_info['variables'])}")
+        
+        # Display endpoints table
+        table = Table(title=f"Extracted Endpoints ({len(endpoints)})")
+        table.add_column("Method", style="cyan")
+        table.add_column("Path", style="green")
+        table.add_column("Auth", style="yellow")
+        table.add_column("Parameters", style="magenta")
+        
+        for endpoint in endpoints[:50]:  # Limit display
+            auth = "🔒" if endpoint.requires_auth else "🔓"
+            params = ", ".join([p.name for p in endpoint.parameters[:3]]) or "-"
+            if len(endpoint.parameters) > 3:
+                params += f" +{len(endpoint.parameters) - 3}"
+            table.add_row(
+                endpoint.method.value,
+                endpoint.path,
+                auth,
+                params
+            )
+        
+        console.print(table)
+        
+        if len(endpoints) > 50:
+            console.print(f"[dim]... and {len(endpoints) - 50} more endpoints[/dim]")
+        
+        # Get base URL from collection if available
+        base_url = target or parser.get_base_url()
+        if base_url:
+            console.print(f"\n[cyan]Detected base URL: {base_url}[/cyan]")
+        
+        # Run scan if requested
+        if scan and target:
+            console.print(f"\n🚀 [bold]Starting security scan...[/bold]")
+            console.print("[yellow]Use the 'scan' command with --swagger for full scanning capabilities[/yellow]")
+        
+        # Save endpoints to file if output specified
+        if output:
+            import json
+            endpoints_data = [ep.model_dump() for ep in endpoints]
+            with open(output, 'w') as f:
+                json.dump(endpoints_data, f, indent=2, default=str)
+            console.print(f"\n[green]Endpoints saved to: {output}[/green]")
+        
+    except PostmanParseError as e:
+        console.print(f"\n[red]Parse error: {e}[/red]")
+        sys.exit(1)
+    except Exception as e:
+        console.print(f"\n[red]Error: {e}[/red]")
+        sys.exit(1)
+
+
+@postman.command('export')
+@click.option(
+    '--swagger', '-s',
+    type=click.Path(exists=True),
+    help='Path to OpenAPI/Swagger specification to convert'
+)
+@click.option(
+    '--collection', '-c',
+    type=click.Path(exists=True),
+    help='Path to existing Postman collection to extend'
+)
+@click.option(
+    '--output', '-o',
+    required=True,
+    help='Output file for Postman collection'
+)
+@click.option(
+    '--name', '-n',
+    default='Sentinel Export',
+    help='Collection name'
+)
+@click.option(
+    '--base-url', '-u',
+    help='Base URL for the API'
+)
+def export_collection(
+    swagger: Optional[str],
+    collection: Optional[str],
+    output: str,
+    name: str,
+    base_url: Optional[str]
+):
+    """
+    Export endpoints to a Postman collection.
+    
+    Creates a Postman Collection v2.1 file from an OpenAPI specification
+    or extends an existing Postman collection.
+    
+    Example:
+        sentinel postman export --swagger api.yaml --output collection.json
+        sentinel postman export --swagger api.yaml -n "My API" -u https://api.example.com -o my_api.json
+    """
+    print_banner()
+    console.print(f"\n📤 [bold]Exporting to Postman Collection[/bold]")
+    
+    try:
+        endpoints = []
+        
+        if swagger:
+            console.print(f"   Source: OpenAPI ({swagger})")
+            from .parser import SwaggerParser
+            parser = SwaggerParser(swagger)
+            endpoints = parser.parse()
+            
+            # Get base URL from spec if not provided
+            if not base_url:
+                base_url = parser.get_base_url() or "{{base_url}}"
+            
+            # Use API title for collection name if not provided
+            if name == 'Sentinel Export':
+                info = parser.get_info()
+                name = info.get('title', 'Sentinel Export')
+            
+            console.print(f"   Endpoints: {len(endpoints)}")
+        
+        elif collection:
+            console.print(f"   Source: Postman ({collection})")
+            parser = PostmanParser(collection)
+            endpoints = parser.parse()
+            console.print(f"   Endpoints: {len(endpoints)}")
+        
+        else:
+            console.print("[red]Error: Either --swagger or --collection must be specified[/red]")
+            sys.exit(1)
+        
+        if not endpoints:
+            console.print("[red]No endpoints found to export[/red]")
+            sys.exit(1)
+        
+        # Generate collection
+        generator = PostmanGenerator(name=name)
+        postman_collection = generator.from_endpoints(
+            endpoints=endpoints,
+            base_url=base_url or "{{base_url}}"
+        )
+        
+        # Save collection
+        output_path = generator.save(postman_collection, output)
+        
+        console.print(f"\n[green]✅ Collection exported successfully![/green]")
+        console.print(f"   Name: {name}")
+        console.print(f"   Endpoints: {len(endpoints)}")
+        console.print(f"   Output: {output_path}")
+        console.print(f"\n[dim]Import this collection into Postman to test your API[/dim]")
+        
+    except Exception as e:
+        console.print(f"\n[red]Error: {e}[/red]")
+        sys.exit(1)
+
+
+@postman.command('convert')
+@click.argument('input', type=click.Path(exists=True))
+@click.option(
+    '--output', '-o',
+    required=True,
+    help='Output file for converted collection'
+)
+@click.option(
+    '--name', '-n',
+    help='Collection name (defaults to API title)'
+)
+@click.option(
+    '--base-url', '-u',
+    help='Base URL for the API'
+)
+def convert_spec(input: str, output: str, name: Optional[str], base_url: Optional[str]):
+    """
+    Convert between OpenAPI/Swagger and Postman Collection formats.
+    
+    Supports:
+    - OpenAPI/Swagger YAML/JSON → Postman Collection
+    - Postman Collection → Postman Collection (normalize/repair)
+    
+    Example:
+        sentinel postman convert api.yaml -o collection.json
+        sentinel postman convert api.json -o collection.json -n "My API"
+    """
+    print_banner()
+    console.print(f"\n🔄 [bold]Converting Specification[/bold]")
+    console.print(f"   Input: {input}")
+    console.print(f"   Output: {output}\n")
+    
+    try:
+        # Determine input type
+        import json
+        content = Path(input).read_text()
+        
+        is_openapi = False
+        try:
+            data = json.loads(content) if content.strip().startswith('{') else yaml.safe_load(content)
+            if 'openapi' in data or 'swagger' in data:
+                is_openapi = True
+        except:
+            pass
+        
+        # Try YAML if JSON parse fails
+        if not is_openapi and ('openapi:' in content or 'swagger:' in content):
+            is_openapi = True
+        
+        if is_openapi:
+            console.print("[cyan]Detected: OpenAPI/Swagger specification[/cyan]")
+            
+            # Convert OpenAPI to Postman
+            collection = convert_openapi_to_postman(
+                openapi_path=input,
+                output_path=output,
+                name=name,
+                base_url=base_url
+            )
+            
+            console.print(f"\n[green]✅ Converted to Postman Collection![/green]")
+            console.print(f"   Collection: {collection.get('info', {}).get('name', 'Unknown')}")
+            console.print(f"   Output: {output}")
+        else:
+            console.print("[cyan]Detected: Postman Collection[/cyan]")
+            
+            # Parse and regenerate the collection (normalize/repair)
+            parser = PostmanParser(input)
+            endpoints = parser.parse()
+            info = parser.parse_full()['info']
+            
+            generator = PostmanGenerator(name=name or info.get('name', 'Converted Collection'))
+            collection = generator.from_endpoints(
+                endpoints=endpoints,
+                base_url=base_url or parser.get_base_url() or "{{base_url}}"
+            )
+            generator.save(collection, output)
+            
+            console.print(f"\n[green]✅ Collection normalized![/green]")
+            console.print(f"   Endpoints: {len(endpoints)}")
+            console.print(f"   Output: {output}")
+        
+    except Exception as e:
+        console.print(f"\n[red]Error: {e}[/red]")
+        sys.exit(1)
+
+
+# ==================== v1.0.0 BENCHMARK COMMANDS ====================
+
+@cli.group()
+def benchmark():
+    """Run benchmarks against vulnerable applications."""
+    pass
+
+
+@benchmark.command('run')
+@click.option(
+    '--target', '-t',
+    type=click.Choice(['crapi', 'juice_shop', 'owasp_benchmark', 'all']),
+    default='all',
+    help='Benchmark target to run'
+)
+@click.option(
+    '--url', '-u',
+    help='Target URL (overrides default)'
+)
+@click.option(
+    '--output', '-o',
+    default='benchmark_results.json',
+    help='Output file for results'
+)
+@click.option(
+    '--verbose', '-v',
+    is_flag=True,
+    help='Enable verbose output'
+)
+def run_benchmark(target: str, url: Optional[str], output: str, verbose: bool):
+    """
+    Run security benchmark against vulnerable applications.
+    
+    Measures Sentinel's detection capabilities against known vulnerabilities.
+    
+    Available targets:
+    - crapi: OWASP crAPI (API-specific vulnerabilities)
+    - juice_shop: OWASP Juice Shop (web application)
+    - owasp_benchmark: OWASP Benchmark Java (comprehensive test suite)
+    - all: Run all benchmarks
+    
+    Example:
+        sentinel benchmark run --target crapi --url http://localhost:8888
+        sentinel benchmark run --target all
+    """
+    import asyncio
+    
+    print_banner()
+    console.print(f"\n📊 [bold]Running Security Benchmarks[/bold]")
+    console.print(f"   Target: {target}")
+    console.print(f"   Output: {output}\n")
+    
+    async def execute_benchmark():
+        results = []
+        runner = BenchmarkRunner()
+        
+        # Define targets and their default URLs
+        targets_config = {
+            'crapi': {'url': url or 'http://localhost:8888', 'name': 'OWASP crAPI'},
+            'juice_shop': {'url': url or 'http://localhost:3000', 'name': 'OWASP Juice Shop'},
+            'owasp_benchmark': {'url': url or 'http://localhost:8080', 'name': 'OWASP Benchmark Java'}
+        }
+        
+        # Determine which targets to run
+        if target == 'all':
+            to_run = list(targets_config.keys())
+        else:
+            to_run = [target]
+        
+        for t in to_run:
+            config = targets_config[t]
+            console.print(f"\n[target] [bold cyan]Running benchmark: {config['name']}[/bold cyan]")
+            console.print(f"   URL: {config['url']}")
+            
+            try:
+                result = await runner.run_benchmark(
+                    target=BenchmarkTarget(t),
+                    base_url=config['url'],
+                    verbose=verbose
+                )
+                results.append(result)
+                
+                # Display results
+                _display_benchmark_result(result)
+                
+            except Exception as e:
+                console.print(f"[red]Error running benchmark: {e}[/red]")
+                if verbose:
+                    console.print_exception()
+        
+        return results
+    
+    try:
+        results = asyncio.run(execute_benchmark())
+        
+        # Generate overall summary
+        if results:
+            console.print("\n" + "="*60)
+            console.print("📈 [bold]Overall Benchmark Summary[/bold]")
+            console.print("="*60 + "\n")
+            
+            summary_table = Table(title="Benchmark Results")
+            summary_table.add_column("Target", style="cyan")
+            summary_table.add_column("Total Vulns", style="white")
+            summary_table.add_column("Detected", style="green")
+            summary_table.add_column("Precision", style="yellow")
+            summary_table.add_column("Recall", style="magenta")
+            summary_table.add_column("F1 Score", style="blue")
+            
+            for r in results:
+                summary_table.add_row(
+                    r.target.value,
+                    str(r.total_vulnerabilities),
+                    str(r.detected_vulnerabilities),
+                    f"{r.precision:.2%}",
+                    f"{r.recall:.2%}",
+                    f"{r.f1_score:.2%}"
+                )
+            
+            console.print(summary_table)
+            
+            # Save results
+            results_data = []
+            for r in results:
+                results_data.append({
+                    "target": r.target.value,
+                    "total_vulnerabilities": r.total_vulnerabilities,
+                    "detected_vulnerabilities": r.detected_vulnerabilities,
+                    "true_positives": r.true_positives,
+                    "false_positives": r.false_positives,
+                    "false_negatives": r.false_negatives,
+                    "precision": r.precision,
+                    "recall": r.recall,
+                    "f1_score": r.f1_score,
+                    "detection_rate": r.detection_rate,
+                    "duration_seconds": r.duration_seconds
+                })
+            
+            with open(output, 'w') as f:
+                json.dump({
+                    "sentinel_version": __version__,
+                    "timestamp": time.time(),
+                    "results": results_data
+                }, f, indent=2)
+            
+            console.print(f"\n[green]Results saved to: {output}[/green]")
+        
+    except Exception as e:
+        console.print(f"\n[red]Error: {e}[/red]")
+        sys.exit(1)
+
+
+def _display_benchmark_result(result: BenchmarkResult):
+    """Display benchmark result in a formatted table."""
+    table = Table(title=f"Results for {result.target.value}")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+    
+    table.add_row("Total Vulnerabilities", str(result.total_vulnerabilities))
+    table.add_row("Detected", str(result.detected_vulnerabilities))
+    table.add_row("True Positives", str(result.true_positives))
+    table.add_row("False Positives", str(result.false_positives))
+    table.add_row("False Negatives", str(result.false_negatives))
+    table.add_row("Precision", f"{result.precision:.2%}")
+    table.add_row("Recall", f"{result.recall:.2%}")
+    table.add_row("F1 Score", f"{result.f1_score:.2%}")
+    table.add_row("Duration", f"{result.duration_seconds:.2f}s")
+    
+    console.print(table)
+    
+    # Category breakdown
+    if result.category_results:
+        cat_table = Table(title="Detection by Category")
+        cat_table.add_column("Category", style="cyan")
+        cat_table.add_column("Total", style="white")
+        cat_table.add_column("Detected", style="green")
+        cat_table.add_column("Rate", style="yellow")
+        
+        for cat, data in result.category_results.items():
+            if data["total"] > 0:
+                rate = data["true_positives"] / data["total"] if data["total"] > 0 else 0
+                cat_table.add_row(
+                    cat,
+                    str(data["total"]),
+                    str(data["detected"]),
+                    f"{rate:.0%}"
+                )
+        
+        console.print(cat_table)
+
+
+@benchmark.command('list')
+def list_benchmarks():
+    """List available benchmark targets and their details."""
+    print_banner()
+    console.print("\n📋 [bold]Available Benchmark Targets[/bold]\n")
+    
+    targets_info = [
+        ("crapi", "OWASP crAPI", "http://localhost:8888",
+         "Modern REST API with OWASP API Top 10 vulnerabilities",
+         "13 known vulnerabilities"),
+        ("juice_shop", "OWASP Juice Shop", "http://localhost:3000",
+         "Node.js web application with 100+ vulnerabilities",
+         "22 known vulnerabilities (subset)"),
+        ("owasp_benchmark", "OWASP Benchmark Java", "http://localhost:8080",
+         "Java test suite with thousands of test cases",
+         "13 known vulnerabilities (subset)")
+    ]
+    
+    table = Table()
+    table.add_column("Target", style="cyan")
+    table.add_column("Name", style="green")
+    table.add_column("Default URL", style="yellow")
+    table.add_column("Description", style="white")
+    table.add_column("Vulns", style="magenta")
+    
+    for target, name, url, desc, vulns in targets_info:
+        table.add_row(target, name, url, desc[:40] + "...", vulns)
+    
+    console.print(table)
+    
+    console.print("\n[bold]Metrics Calculated:[/bold]")
+    console.print("  • Detection Rate - Percentage of known vulnerabilities found")
+    console.print("  • Precision - True Positives / (True Positives + False Positives)")
+    console.print("  • Recall - True Positives / (True Positives + False Negatives)")
+    console.print("  • F1 Score - Harmonic mean of Precision and Recall")
+
+
+@benchmark.command('ground-truth')
+@click.option(
+    '--target', '-t',
+    type=click.Choice(['crapi', 'juice_shop', 'owasp_benchmark', 'all']),
+    default='all',
+    help='Target to show ground truth for'
+)
+def show_ground_truth(target: str):
+    """Show ground truth vulnerabilities for benchmark targets."""
+    print_banner()
+    console.print(f"\n🔍 [bold]Ground Truth Database[/bold]\n")
+    
+    db = GroundTruthDatabase()
+    
+    targets_to_show = [target] if target != 'all' else ['crapi', 'juice_shop', 'owasp_benchmark']
+    
+    for t in targets_to_show:
+        vulns = db.get_vulnerabilities(BenchmarkTarget(t))
+        
+        console.print(f"\n[bold cyan]{t.upper()} ({len(vulns)} vulnerabilities)[/bold cyan]")
+        
+        table = Table()
+        table.add_column("ID", style="dim")
+        table.add_column("Category", style="cyan")
+        table.add_column("Endpoint", style="green")
+        table.add_column("Method", style="yellow")
+        table.add_column("CWE", style="magenta")
+        table.add_column("Severity", style="red")
+        
+        for v in vulns[:20]:  # Show first 20
+            table.add_row(
+                v.vuln_id,
+                v.category.value,
+                v.endpoint[:30] + "..." if len(v.endpoint) > 30 else v.endpoint,
+                v.method,
+                v.cwe,
+                v.severity.value.upper()
+            )
+        
+        console.print(table)
+        
+        if len(vulns) > 20:
+            console.print(f"[dim]... and {len(vulns) - 20} more[/dim]")
 
 
 def main():

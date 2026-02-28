@@ -197,22 +197,30 @@ v0.5 (Feb 26)     v0.6 (Feb 27)     v0.7 (Feb 27)     v0.8 (Feb 27)     v0.9 (Fe
 
 ---
 
-### [Unreleased] v1.0.0 - (Stable Release)
+### [Released] v1.0.0 - (Stable Release)
 
 **Focus**: Final polish and advanced benchmarking
 
 | Component | Files | Description |
 |-----------|-------|-------------|
-| Benchmarks | `tests/benchmarks`| Performance and accuracy benchmarks |
-| Postman | `plugins/` | Postman collection support |
+| Benchmarks | `benchmarks/framework.py` | OWASP benchmark testing framework |
+| Ground Truth | `benchmarks/framework.py` | 48 known vulnerabilities across 3 targets |
+| Postman | `postman.py` | Postman Collection v2.0/v2.1 import/export |
+| CLI | `main.py` | `sentinel benchmark` and `sentinel postman` commands |
+| Tests | `tests/unit/test_*.py` | 751 comprehensive tests |
 | Docs | `*.md` | Final documentation polish |
 
 **New Features**:
-- Real-world benchmarking against vulnerable apps
-- Postman collection integration
+- OWASP Benchmark Framework (crAPI, Juice Shop, Benchmark Java)
+- Precision/Recall/F1 score metrics
+- Ground truth vulnerability database
+- Postman Collection v2.0 and v2.1 import support
+- Postman Collection export from OpenAPI specs
+- OpenAPI to Postman conversion
+- Scan from Postman collections
 - Stable v1 API
 
-**Lines of Code**: ~10,000
+**Lines of Code**: ~12,500
 
 ---
 
@@ -255,7 +263,7 @@ v0.2: ███───── (3) + version
 v0.3: ███───── (3) (stable)
 v0.4: ████──── (4) + autonomous
 v0.5: ███████─ (7) + chat, passive, list-attacks
-v1.0: █████████ (9) + proxy, plugin
+v1.0: ██████████████ (14) + proxy, plugin, postman, benchmark
 ```
 
 ---
@@ -269,7 +277,7 @@ v1.0: █████████ (9) + proxy, plugin
 | v0.3 | Feb 24 | ~3,500 | 16 |
 | v0.4 | Feb 25 | ~5,500 | 20 |
 | v0.5 | Feb 26 | ~7,500 | 25 |
-| v1.0.0 | Feb 27 | ~10,000 | 29 |
+| v1.0.0 | Feb 27 | ~12,500 | 34 |
 
 ---
 

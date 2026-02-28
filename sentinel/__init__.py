@@ -98,6 +98,34 @@ from .plugin import (
     create_passive_plugin_template
 )
 
+# v1.0.0 Postman Collection Support
+from .postman import (
+    PostmanParser,
+    PostmanGenerator,
+    PostmanParseError,
+    PostmanVariable,
+    PostmanRequest,
+    PostmanAuthType,
+    parse_postman,
+    generate_postman_collection,
+    convert_openapi_to_postman
+)
+
+# v1.0.0 Benchmark Framework
+from .benchmarks import (
+    BenchmarkTarget,
+    BenchmarkCategory,
+    BenchmarkRunner,
+    BenchmarkResult,
+    BenchmarkReport,
+    GroundTruthDatabase,
+    GroundTruthVulnerability,
+    run_crapi_benchmark,
+    run_juice_shop_benchmark,
+    run_owasp_benchmark,
+    run_all_benchmarks
+)
+
 __all__ = [
     # Models
     'Endpoint',
@@ -172,5 +200,29 @@ __all__ = [
     'PluginContext',
     'get_plugin_manager',
     'create_attack_plugin_template',
-    'create_passive_plugin_template'
+    'create_passive_plugin_template',
+    
+    # v1.0.0 Postman Collection
+    'PostmanParser',
+    'PostmanGenerator',
+    'PostmanParseError',
+    'PostmanVariable',
+    'PostmanRequest',
+    'PostmanAuthType',
+    'parse_postman',
+    'generate_postman_collection',
+    'convert_openapi_to_postman',
+    
+    # v1.0.0 Benchmark Framework
+    'BenchmarkTarget',
+    'BenchmarkCategory',
+    'BenchmarkRunner',
+    'BenchmarkResult',
+    'BenchmarkReport',
+    'GroundTruthDatabase',
+    'GroundTruthVulnerability',
+    'run_crapi_benchmark',
+    'run_juice_shop_benchmark',
+    'run_owasp_benchmark',
+    'run_all_benchmarks'
 ]
