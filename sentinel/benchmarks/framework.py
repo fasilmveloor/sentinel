@@ -285,8 +285,54 @@ class GroundTruthDatabase:
         target: BenchmarkTarget, 
         category: BenchmarkCategory
     ) -> list[GroundTruthVulnerability]:
+        """Get vulnerabilities by category, including sub-categories.
+        
+        For example, querying XSS will also return XSS_REFLECTED, XSS_STORED, XSS_DOM.
+        """
         vulns = self.get_vulnerabilities(target)
-        return [v for v in vulns if v.category == category]
+        
+        # Define category hierarchies (parent -> children)
+        category_hierarchy = {
+            BenchmarkCategory.XSS: [
+                BenchmarkCategory.XSS_REFLECTED,
+                BenchmarkCategory.XSS_STORED,
+                BenchmarkCategory.XSS_DOM,
+            ],
+            BenchmarkCategory.SQL_INJECTION: [
+                BenchmarkCategory.NOSQL_INJECTION,
+            ],
+            BenchmarkCategory.COMMAND_INJECTION: [
+                BenchmarkCategory.CODE_INJECTION,
+            ],
+            BenchmarkCategory.JWT: [
+                BenchmarkCategory.JWT_NONE_ALG,
+                BenchmarkCategory.JWT_WEAK_SECRET,
+                BenchmarkCategory.JWT_ALG_CONFUSION,
+            ],
+            BenchmarkCategory.AUTH_BYPASS: [
+                BenchmarkCategory.BROKEN_AUTH,
+                BenchmarkCategory.WEAK_AUTH,
+                BenchmarkCategory.SESSION_FIXATION,
+            ],
+            BenchmarkCategory.IDOR: [
+                BenchmarkCategory.BOLA,
+                BenchmarkCategory.BFLA,
+            ],
+            BenchmarkCategory.FILE_UPLOAD: [
+                BenchmarkCategory.UNRESTRICTED_UPLOAD,
+            ],
+            BenchmarkCategory.INFO_DISCLOSURE: [
+                BenchmarkCategory.HARD_CODED_SECRETS,
+                BenchmarkCategory.SENSITIVE_DATA_EXPOSURE,
+            ],
+        }
+        
+        # Get the categories to match (parent + children)
+        categories_to_match = [category]
+        if category in category_hierarchy:
+            categories_to_match.extend(category_hierarchy[category])
+        
+        return [v for v in vulns if v.category in categories_to_match]
     
     def get_statistics(self) -> dict:
         stats = {}
