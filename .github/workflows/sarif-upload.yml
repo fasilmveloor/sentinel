@@ -48,7 +48,7 @@ jobs:
           echo "SARIF file found: ${{ inputs.sarif_file || 'test_results/scan_report.sarif' }}"
 
       - name: Upload SARIF to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: ${{ inputs.sarif_file || 'test_results/scan_report.sarif' }}
           category: ${{ inputs.category || 'sentinel-security-scan' }}
