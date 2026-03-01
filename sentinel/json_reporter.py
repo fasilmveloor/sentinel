@@ -154,8 +154,8 @@ class SARIFReporter:
                     "tool": {
                         "driver": {
                             "name": "Sentinel",
-                            "version": "2.0.0",
-                            "informationUri": "https://github.com/yourusername/sentinel",
+                            "version": "1.0.0",
+                            "informationUri": "https://github.com/fasilmveloor/sentinel",
                             "rules": self._generate_rules(scan_result.vulnerabilities),
                             "organization": "Sentinel Security"
                         }
@@ -164,16 +164,14 @@ class SARIFReporter:
                     "invocations": [
                         {
                             "executionSuccessful": True,
-                            "endTimeUtc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                            "measurement": {
-                                "duration": scan_result.duration_seconds
-                            }
+                            "endTimeUtc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
                         }
                     ],
                     "properties": {
                         "target": scan_result.config.target_url,
                         "total_requests": scan_result.total_requests,
-                        "endpoints_tested": len(scan_result.endpoints_tested)
+                        "endpoints_tested": len(scan_result.endpoints_tested),
+                        "duration_seconds": scan_result.duration_seconds
                     }
                 }
             ]
