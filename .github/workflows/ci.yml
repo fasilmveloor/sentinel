@@ -87,7 +87,7 @@ jobs:
           sleep 5
 
           # Run Sentinel scan
-          python -m sentinel --target http://localhost:5000 --spec test_server/openapi.json --output test_results/scan_report.sarif --format sarif || true
+          python -m sentinel scan --target http://localhost:5000 --swagger test_server/openapi.json --output test_results/scan_report.sarif --format sarif || true
 
           # Stop the server
           kill $SERVER_PID || true
