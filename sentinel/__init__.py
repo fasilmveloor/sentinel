@@ -26,12 +26,16 @@ from .models import (
     AttackType,
     Severity,
     HttpMethod,
-    LLMProvider
+    LLMProvider,
+    ScanTask
 )
 from .agent import SentinelAgent, create_agent
 from .parser import SwaggerParser  # Also exported as OpenAPIParser for compatibility
 OpenAPIParser = SwaggerParser  # Alias for backwards compatibility
 from .reporter import Reporter as MarkdownReporter  # Alias for clarity
+from .tasks import TaskQueue
+from .scan_context import ScanContext
+from .orchestrator import SentinelOrchestrator
 
 # v2.5 Agentic Features
 from .autonomous import (
@@ -134,6 +138,10 @@ __all__ = [
     'Severity',
     'HttpMethod',
     'LLMProvider',
+    'ScanTask',
+    'TaskQueue',
+    'ScanContext',
+    'SentinelOrchestrator',
     
     # Core
     'SentinelAgent',

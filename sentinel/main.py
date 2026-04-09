@@ -39,7 +39,7 @@ from .models import (
     LLMProvider,
     ReportFormat
 )
-from .parser import SwaggerParser, get_sample_endpoint_values
+from .parser import SwaggerParser, get_sample_endpoint_values, SwaggerParseError
 from .agent import SentinelAgent, AIAgentError
 from .attacks import (
     SQLInjectionAttacker,
@@ -49,7 +49,17 @@ from .attacks import (
     SSRFAttacker,
     JWTAttacker,
     CommandInjectionAttacker,
-    RateLimitAttacker
+    RateLimitAttacker,
+    # v1.0.0 Enhanced Modules
+    BOLAAttacker,
+    UserCredentials,
+    ExcessiveDataExposureAttacker,
+    MassAssignmentAttacker,
+    BFLAAttacker,
+    UserRole,
+    NoSQLInjectionAttacker,
+    BrokenAuthAttacker,
+    AuthContext
 )
 from .reporter import Reporter
 from .html_reporter import HTMLReporter
@@ -121,20 +131,20 @@ def print_banner():
 def print_banner_v25():
     """Print the Sentinel v2.5 Agentic banner."""
     banner = """
-    ╔═══════════════════════════════════════════════════════════════╗
-    ║                                                               ║
-    ║   ███████╗███████╗███╗   ██╗ ██████╗███████╗██████╗          ║
-    ║   ██╔════╝██╔════╝████╗  ██║██╔════╝██╔════╝██╔══██╗         ║
-    ║   ███████╗█████╗  ██╔██╗ ██║██║     █████╗  ██████╔╝         ║
-    ║   ╚════██║██╔══╝  ██║╚██╗██║██║     ██╔══╝  ██╔══██╗         ║
-    ║   ███████║███████╗██║ ╚████║╚██████╗███████╗██║  ██║         ║
-    ║   ╚══════╝╚══════╝╚═╝  ╚═══╝ ╚═════╝╚══════╝╚═╝  ╚═╝         ║
-    ║                                                               ║
-    ║       AI-Native API Security v1.0                            ║
-    ║                                                               ║
-    ║   🤖 Multi-Agent System      💬 Natural Language Interface   ║
-    ║   🔗 Attack Chain Discovery   🔍 Passive Security Scanner     ║
-    ╚═══════════════════════════════════════════════════════════════╝
+    ╔═════════════════════════════════════════════════════════════════════╗
+    ║                                                                     ║
+    ║   ███████╗███████╗███╗   ██╗████████╗██╗███╗   ██╗███████╗██╗       ║
+    ║   ██╔════╝██╔════╝████╗  ██║╚══██╔══╝██║████╗  ██║██╔════╝██║       ║
+    ║   ███████╗█████╗  ██╔██╗ ██║   ██║   ██║██╔██╗ ██║█████╗  ██║       ║
+    ║   ╚════██║██╔══╝  ██║╚██╗██║   ██║   ██║██║╚██╗██║██╔══╝  ██║       ║
+    ║   ███████║███████╗██║ ╚████║   ██║   ██║██║ ╚████║███████╗███████║  ║
+    ║   ╚══════╝╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝  ║
+    ║                                                                     ║
+    ║       AI-Native API Security v1.0                                   ║
+    ║                                                                     ║
+    ║   🤖 Multi-Agent System      💬 Natural Language Interface          ║
+    ║   🔗 Attack Chain Discovery   🔍 Passive Security Scanner           ║
+    ╚═════════════════════════════════════════════════════════════════════╝
     """
     console.print(banner, style="bold blue")
 
@@ -229,8 +239,13 @@ def cli():
 @click.option(
     '--attacks', '-a',
     multiple=True,
-    type=click.Choice(['sql_injection', 'auth_bypass', 'idor', 'xss', 'ssrf', 'jwt', 'cmd_injection', 'rate_limit']),
-    default=['sql_injection', 'auth_bypass', 'idor', 'xss', 'ssrf', 'jwt', 'cmd_injection', 'rate_limit'],
+    type=click.Choice([
+        'sql_injection', 'auth_bypass', 'idor', 'xss', 'ssrf', 'jwt', 'cmd_injection', 'rate_limit',
+        # v1.0.0 Enhanced Attacks
+        'bola', 'excessive_data', 'mass_assignment', 'bfla', 'nosql_injection', 'broken_auth'
+    ]),
+    default=['sql_injection', 'auth_bypass', 'idor', 'xss', 'ssrf', 'jwt', 'cmd_injection', 'rate_limit',
+             'bola', 'excessive_data', 'mass_assignment', 'bfla', 'nosql_injection', 'broken_auth'],
     help='Attack types to perform (can specify multiple)'
 )
 @click.option(
@@ -359,6 +374,7 @@ def scan(
         
         attackers = {}
         attack_modules = [
+            # Core Attack Modules
             ('SQL Injection', AttackType.SQL_INJECTION, lambda: SQLInjectionAttacker(target, timeout)),
             ('XSS', AttackType.XSS, lambda: XSSAttacker(target, timeout)),
             ('Auth Bypass', AttackType.AUTH_BYPASS, lambda: AuthBypassAttacker(target, timeout)),
@@ -367,6 +383,13 @@ def scan(
             ('JWT', AttackType.JWT, lambda: JWTAttacker(target, timeout)),
             ('Command Injection', AttackType.CMD_INJECTION, lambda: CommandInjectionAttacker(target, timeout)),
             ('Rate Limit', AttackType.RATE_LIMIT, lambda: RateLimitAttacker(target, timeout)),
+            # v1.0.0 Enhanced Modules
+            ('BOLA/IDOR Advanced', AttackType.BOLA, lambda: BOLAAttacker(target, timeout)),
+            ('Excessive Data Exposure', AttackType.EXCESSIVE_DATA, lambda: ExcessiveDataExposureAttacker(target, timeout)),
+            ('Mass Assignment', AttackType.MASS_ASSIGNMENT, lambda: MassAssignmentAttacker(target, timeout)),
+            ('BFLA', AttackType.BFLA, lambda: BFLAAttacker(target, timeout)),
+            ('NoSQL Injection', AttackType.NOSQL_INJECTION, lambda: NoSQLInjectionAttacker(target, timeout)),
+            ('Broken Auth', AttackType.BROKEN_AUTH, lambda: BrokenAuthAttacker(target, timeout)),
         ]
         
         for name, attack_type, attacker_factory in attack_modules:
@@ -424,6 +447,10 @@ def scan(
                     # Run attack
                     if attack_type == AttackType.JWT:
                         attack_results = attacker.attack(endpoint, auth_token)
+                    elif attack_type == AttackType.AUTH_BYPASS:
+                        attack_results = attacker.attack(endpoint, auth_token)
+                    elif attack_type == AttackType.BROKEN_AUTH:
+                        attack_results = attacker.attack(endpoint, auth_token)
                     else:
                         attack_results = attacker.attack(endpoint, params_to_test)
                     
@@ -435,7 +462,7 @@ def scan(
                         if ar.success:
                             try:
                                 vuln = attacker.create_vulnerability(ar, endpoint)
-                                result.vulnerabilities.append(vuln)
+                                result.add_vulnerability(vuln)
                             except Exception as e:
                                 if verbose:
                                     console.print(f"[yellow]Warning: Could not create vulnerability: {e}[/yellow]")
@@ -484,6 +511,12 @@ def scan(
     except KeyboardInterrupt:
         console.print("\n[yellow]Scan interrupted by user.[/yellow]")
         sys.exit(130)
+    except SwaggerParseError as e:
+        # User-facing parse errors - show clean message without traceback
+        console.print(f"\n[red]❌ Parse Error:[/red]")
+        for line in str(e).split('\n'):
+            console.print(f"   {line}")
+        sys.exit(1)
     except Exception as e:
         console.print(f"\n[red]Error during scan: {e}[/red]")
         if verbose:
@@ -686,6 +719,11 @@ def autonomous(
             console.print("\n[bold green]✅ No critical or high severity issues found.[/bold green]")
             sys.exit(0)
             
+    except SwaggerParseError as e:
+        console.print(f"\n[red]❌ Parse Error:[/red]")
+        for line in str(e).split('\n'):
+            console.print(f"   {line}")
+        sys.exit(1)
     except Exception as e:
         console.print(f"\n[red]Error: {e}[/red]")
         import traceback
@@ -852,14 +890,15 @@ def passive(url: str, output: Optional[str]):
 @cli.command()
 def list_attacks():
     """List available attack types."""
-    table = Table(title="Available Attack Types (v2.0)")
+    table = Table(title="Available Attack Types (v1.0.0)")
     table.add_column("Attack Type", style="cyan")
     table.add_column("Description", style="white")
     table.add_column("OWASP", style="yellow")
     table.add_column("CWE", style="magenta")
     
     attacks_info = [
-        ("sql_injection", "SQL and NoSQL injection testing", "A03:2021", "CWE-89"),
+        # Core Attack Types
+        ("sql_injection", "SQL injection testing", "A03:2021", "CWE-89"),
         ("xss", "Cross-Site Scripting testing", "A03:2021", "CWE-79"),
         ("auth_bypass", "Authentication bypass testing", "A07:2021", "CWE-306"),
         ("idor", "Insecure Direct Object Reference", "A01:2021", "CWE-639"),
@@ -867,13 +906,22 @@ def list_attacks():
         ("jwt", "JWT vulnerability testing", "A07:2021", "CWE-287"),
         ("cmd_injection", "OS command injection", "A03:2021", "CWE-78"),
         ("rate_limit", "Rate limiting detection", "A04:2021", "CWE-770"),
+        # v1.0.0 Enhanced Attack Types
+        ("bola", "Broken Object Level Authorization", "API1:2023", "CWE-639"),
+        ("excessive_data", "Excessive Data Exposure", "API3:2023", "CWE-200"),
+        ("mass_assignment", "Mass Assignment vulnerability", "API6:2023", "CWE-915"),
+        ("bfla", "Broken Function Level Authorization", "API5:2023", "CWE-285"),
+        ("nosql_injection", "NoSQL injection testing", "A03:2021", "CWE-943"),
+        ("broken_auth", "Broken Authentication flows", "API7:2023", "CWE-287"),
     ]
     
-    console.print("\n[bold cyan]v2.5 Agentic Features:[/bold cyan]")
-    console.print("  • Autonomous scanning with AI planning")
-    console.print("  • Attack chain discovery")
-    console.print("  • Passive security scanning")
-    console.print("  • Interactive chat mode\n")
+    console.print("\n[bold cyan]v1.0.0 Enhanced Detection:[/bold cyan]")
+    console.print("  • BOLA/IDOR with multi-user testing")
+    console.print("  • Excessive Data Exposure detection")
+    console.print("  • Mass Assignment vulnerability detection")
+    console.print("  • BFLA (Broken Function Level Authorization)")
+    console.print("  • NoSQL Injection testing")
+    console.print("  • Broken Authentication flow testing\n")
     
     for attack, desc, owasp, cwe in attacks_info:
         table.add_row(attack, desc, owasp, cwe)
@@ -919,6 +967,11 @@ def inspect(swagger: str):
         
         console.print(table)
         
+    except SwaggerParseError as e:
+        console.print(f"\n[red]❌ Parse Error:[/red]")
+        for line in str(e).split('\n'):
+            console.print(f"   {line}")
+        sys.exit(1)
     except Exception as e:
         console.print(f"[red]Error parsing specification: {e}[/red]")
         sys.exit(1)
@@ -1531,6 +1584,7 @@ def convert_spec(input: str, output: str, name: Optional[str], base_url: Optiona
     try:
         # Determine input type
         import json
+        import yaml
         content = Path(input).read_text()
         
         is_openapi = False
@@ -1629,6 +1683,7 @@ def run_benchmark(target: str, url: Optional[str], output: str, verbose: bool):
         sentinel benchmark run --target all
     """
     import asyncio
+    import json
     
     print_banner()
     console.print(f"\n📊 [bold]Running Security Benchmarks[/bold]")

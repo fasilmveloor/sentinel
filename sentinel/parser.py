@@ -223,6 +223,26 @@ class SwaggerParser:
         if not self.spec_path.exists():
             raise SwaggerParseError(f"Specification file not found: {self.spec_path}")
         
+        if self.spec_path.is_dir():
+            # Try to find a spec file in the directory
+            common_spec_files = [
+                'openapi.json', 'openapi.yaml', 'openapi.yml',
+                'swagger.json', 'swagger.yaml', 'swagger.yml',
+                'api-spec.json', 'api-spec.yaml', 'spec.json', 'spec.yaml'
+            ]
+            for spec_file in common_spec_files:
+                candidate = self.spec_path / spec_file
+                if candidate.exists():
+                    self.spec_path = candidate
+                    break
+            else:
+                raise SwaggerParseError(
+                    f"Path is a directory, not a file: {self.spec_path}\n"
+                    f"Please specify a spec file (e.g., openapi.json) or use one of these:\n"
+                    f"  {self.spec_path}/openapi.json\n"
+                    f"  {self.spec_path}/swagger.json"
+                )
+        
         content = self.spec_path.read_text(encoding='utf-8')
         
         # Try JSON first, then YAML
@@ -646,3 +666,4 @@ def get_sample_endpoint_values(endpoint: Endpoint) -> dict[str, Any]:
             sample_values[param.name] = type_defaults.get(param.param_type, 'test')
     
     return sample_values
+    
