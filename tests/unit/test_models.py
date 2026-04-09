@@ -63,14 +63,9 @@ class TestAttackType:
         assert AttackType.CMD_INJECTION.value == "cmd_injection"
         assert AttackType.RATE_LIMIT.value == "rate_limit"
 
-    def test_future_attack_types(self):
-        """Test future attack types exist."""
-        assert AttackType.XXE.value == "xxe"
-        assert AttackType.PATH_TRAVERSAL.value == "path_traversal"
-
     def test_attack_type_count(self):
         """Test total attack type count."""
-        assert len(AttackType) == 16  # Updated from 10 to 16 (added BOLA, EXCESSIVE_DATA, MASS_ASSIGNMENT, BFLA, NOSQL_INJECTION, BROKEN_AUTH)
+        assert len(AttackType) == 14
 
 
 class TestSeverity:
@@ -497,7 +492,7 @@ class TestScanResult:
             ),
             Vulnerability(
                 endpoint=sample_endpoint,
-                attack_type=AttackType.XXE,
+                attack_type=AttackType.RATE_LIMIT,
                 severity=Severity.INFO,
                 title="Info", description="d", payload="p",
                 proof_of_concept="poc", recommendation="r"
