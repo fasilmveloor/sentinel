@@ -309,8 +309,6 @@ class SARIFReporter:
             AttackType.JWT: "JWT Vulnerability Detection",
             AttackType.CMD_INJECTION: "Command Injection Detection",
             AttackType.RATE_LIMIT: "Rate Limit Issue Detection",
-            AttackType.XXE: "XML External Entity Detection",
-            AttackType.PATH_TRAVERSAL: "Path Traversal Detection"
         }
         return names.get(attack_type, attack_type.value.title())
     

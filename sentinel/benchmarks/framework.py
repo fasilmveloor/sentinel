@@ -50,7 +50,8 @@ from ..models import (
     ReportFormat
 )
 from ..parser import SwaggerParser
-from ..autonomous import AutonomousScanner
+from ..orchestrator import SentinelOrchestrator
+from ..models import ScanTask
 from ..passive import PassiveScanner, create_passive_scanner
 
 
@@ -923,16 +924,45 @@ class BenchmarkRunner:
         return unique_endpoints
     
     async def _run_scan(self, endpoints: list[Endpoint], base_url: str, attack_types: list[AttackType], auth_token: Optional[str], timeout: int, verbose: bool) -> list[Vulnerability]:
-        from ..autonomous import run_autonomous_scan
-        headers = {}
-        if auth_token:
-            headers["Authorization"] = f"Bearer {auth_token}"
         try:
-            scan_result = await run_autonomous_scan(endpoints=endpoints, base_url=base_url, headers=headers, ai_provider=LLMProvider.LOCAL)
+            orchestrator = SentinelOrchestrator(
+                target_url=base_url,
+                timeout=timeout,
+                max_iterations=max(len(endpoints) * 2, 5),
+                max_tasks=max(len(endpoints) * 4, 50),
+                endpoints=endpoints,
+            )
+
+            for endpoint in endpoints:
+                parameters = [parameter.name for parameter in endpoint.parameters]
+                for attack_type in attack_types:
+                    artifacts = {}
+                    if auth_token and attack_type in orchestrator.AUTH_TOKEN_ATTACKS:
+                        artifacts["auth_token"] = auth_token
+                    orchestrator.push_task(
+                        ScanTask(
+                            endpoint=endpoint,
+                            attack_type=attack_type,
+                            parameters=parameters,
+                            artifacts=artifacts,
+                            reason="benchmark seed",
+                        )
+                    )
+
+            attack_results = orchestrator.run()
             vulnerabilities = []
-            for finding in scan_result.findings:
-                vuln = Vulnerability(endpoint=finding.endpoint, attack_type=finding.attack_type, severity=finding.severity, title=finding.title, description=finding.description, payload=finding.payload or "", proof_of_concept=finding.evidence or "", recommendation="")
-                vulnerabilities.append(vuln)
+            for attack_result in attack_results:
+                if not attack_result.success:
+                    continue
+                attacker = orchestrator._get_attacker(attack_result.attack_type)
+                if attacker is None:
+                    continue
+                try:
+                    vulnerabilities.append(
+                        attacker.create_vulnerability(attack_result, attack_result.endpoint)
+                    )
+                except Exception:
+                    continue
             return vulnerabilities
         except Exception as e:
             if verbose:

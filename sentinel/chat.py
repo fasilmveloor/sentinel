@@ -9,14 +9,13 @@ v2.5 Feature: Agentic OWASP ZAP
 
 import json
 import re
-from typing import Optional
+from typing import Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 
 from .models import Endpoint, AttackType, Severity, LLMProvider
 from .agent import SentinelAgent, create_agent
 from .parser import SwaggerParser as OpenAPIParser
-from .autonomous import AutonomousScanner, AutonomousScanResult
 
 
 class ChatIntent(Enum):
@@ -52,28 +51,6 @@ class SentinelChat:
     Allows users to interact with the security tool using conversational commands.
     """
     
-    SYSTEM_PROMPT = """You are Sentinel, an AI-powered API security testing assistant. You help security professionals and developers test their APIs for vulnerabilities.
-
-You can understand natural language requests and translate them into security testing actions. Be helpful, professional, and security-focused.
-
-Available capabilities:
-1. Scan APIs - Run comprehensive security scans on API endpoints
-2. Analyze endpoints - Explain security implications of specific endpoints
-3. Explain findings - Provide detailed explanations of vulnerabilities
-4. Suggest tests - Recommend specific security tests based on context
-5. Generate reports - Create security reports from scan results
-6. Answer questions - Help with API security concepts
-
-When users ask to scan an API, extract:
-- Target URL or API spec file
-- Authentication details (if mentioned)
-- Specific tests they want (if mentioned)
-
-Respond naturally but be concise. When appropriate, suggest follow-up actions.
-
-Current context:
-{context}"""
-
     INTENT_PROMPT = """Classify the user's intent from their message:
 
 Message: "{message}"
@@ -91,70 +68,14 @@ Possible intents:
 Respond in JSON:
 {"intent": "intent_name", "confidence": 0.0-1.0, "extracted_info": {"url": "...", "endpoint": "...", "attack_type": "..."}}"""
 
-    SCAN_PROMPT = """The user wants to scan an API. Extract the following information from their request:
-
-Request: "{message}"
-
-Extract:
-1. Target URL (if provided)
-2. API specification file (if mentioned)
-3. Authentication method (if mentioned: bearer token, API key, basic auth, etc.)
-4. Specific attack types to run (if mentioned)
-5. Any exclusions or constraints
-
-Respond in JSON:
-{
-    "target_url": "extracted url or null",
-    "spec_file": "file path or null",
-    "auth": {
-        "type": "bearer/api_key/basic/none",
-        "value": "extracted value or null"
-    },
-    "attack_types": ["list", "of", "types"],
-    "exclusions": ["paths to exclude"],
-    "scan_scope": "quick/full/custom"
-}"""
-
-    EXPLAIN_PROMPT = """Explain this security finding in detail:
-
-Finding: {finding}
-
-Provide:
-1. What this vulnerability means
-2. Why it's a security risk
-3. How an attacker could exploit it
-4. How to fix it
-5. Related CWE/OWASP references
-
-Be educational but concise. Use markdown formatting."""
-
-    SUGGEST_PROMPT = """Based on this API information, suggest the most effective security tests:
-
-API Info: {api_info}
-
-Consider:
-1. Which attack types are most relevant
-2. Which endpoints are highest risk
-3. What authentication tests to run
-4. Any business logic concerns
-
-Respond in JSON:
-{
-    "priority_tests": [
-        {"test": "attack_type", "target": "endpoint", "reasoning": "why"}
-    ],
-    "risk_areas": ["area1", "area2"],
-    "estimated_time": "X minutes"
-}"""
-
     def __init__(
         self,
         ai_provider: LLMProvider = LLMProvider.GEMINI,
         api_key: Optional[str] = None
     ):
         self.ai_agent = create_agent(ai_provider, api_key)
-        self.scanner: Optional[AutonomousScanner] = None
-        self.last_scan_result: Optional[AutonomousScanResult] = None
+        self.scanner: Optional[Any] = None
+        self.last_scan_result: Optional[Any] = None
         self.endpoints: list[Endpoint] = []
         self.context: dict = {}
         self.conversation_history: list[dict] = []
@@ -608,9 +529,15 @@ Suggest tests for my API
         }
         
         if self.last_scan_result:
-            status['findings'] = len(self.last_scan_result.findings)
-            status['attack_chains'] = len(self.last_scan_result.attack_chains)
-            status['status'] = self.last_scan_result.state.value
+            findings = getattr(self.last_scan_result, 'findings', None)
+            if findings is None:
+                findings = getattr(self.last_scan_result, 'vulnerabilities', [])
+            attack_chains = getattr(self.last_scan_result, 'attack_chains', [])
+            state = getattr(self.last_scan_result, 'state', None)
+
+            status['findings'] = len(findings)
+            status['attack_chains'] = len(attack_chains)
+            status['status'] = getattr(state, 'value', 'completed')
         
         status_msg = "📊 **Current Status**\n\n"
         status_msg += f"- **Endpoints loaded**: {status['endpoints_loaded']}\n"
@@ -644,7 +571,14 @@ Suggest tests for my API
             )
         
         # Generate summary
-        summary = self.last_scan_result.summary
+        summary = getattr(self.last_scan_result, 'summary', None)
+        if summary is None:
+            summary = {
+                'critical': getattr(self.last_scan_result, 'critical_count', 0),
+                'high': getattr(self.last_scan_result, 'high_count', 0),
+                'medium': getattr(self.last_scan_result, 'medium_count', 0),
+                'low': getattr(self.last_scan_result, 'low_count', 0),
+            }
         report = "📋 **Security Scan Report**\n\n"
         report += f"**Summary:**\n"
         report += f"- Critical: {summary.get('critical', 0)}\n"
@@ -652,9 +586,10 @@ Suggest tests for my API
         report += f"- Medium: {summary.get('medium', 0)}\n"
         report += f"- Low: {summary.get('low', 0)}\n\n"
         
-        if self.last_scan_result.attack_chains:
+        attack_chains = getattr(self.last_scan_result, 'attack_chains', [])
+        if attack_chains:
             report += "**Attack Chains Discovered:**\n"
-            for chain in self.last_scan_result.attack_chains:
+            for chain in attack_chains:
                 report += f"- {chain.name} ({chain.severity.value})\n"
         
         return ChatResponse(
@@ -686,7 +621,7 @@ Suggest tests for my API
         self.endpoints = endpoints
         self.context['endpoints_loaded'] = True
     
-    def set_scan_result(self, result: AutonomousScanResult):
+    def set_scan_result(self, result: Any):
         """Set the last scan result."""
         self.last_scan_result = result
 

@@ -186,8 +186,11 @@ class IDORAttacker:
                 attack_type=AttackType.IDOR,
                 success=is_vulnerable,
                 payload=f"{param.name}={new_id}",
+                request_url=url,
+                request_method=endpoint.method.value,
                 response_status=response.status_code,
                 response_body=response.text[:500],
+                evidence_excerpt=response.text[:200] if is_vulnerable else None,
                 duration_ms=duration_ms
             )
             
@@ -197,6 +200,8 @@ class IDORAttacker:
                 attack_type=AttackType.IDOR,
                 success=False,
                 payload=f"{param.name}={new_id}",
+                request_url=url,
+                request_method=endpoint.method.value,
                 error_message="Request timed out"
             )
         except Exception as e:
@@ -205,6 +210,8 @@ class IDORAttacker:
                 attack_type=AttackType.IDOR,
                 success=False,
                 payload=f"{param.name}={new_id}",
+                request_url=url if 'url' in locals() else None,
+                request_method=endpoint.method.value,
                 error_message=str(e)
             )
     
@@ -243,8 +250,11 @@ class IDORAttacker:
                 attack_type=AttackType.IDOR,
                 success=is_vulnerable,
                 payload=f"Path {path_param}={new_id}",
+                request_url=url,
+                request_method=endpoint.method.value,
                 response_status=response.status_code,
                 response_body=response.text[:500],
+                evidence_excerpt=response.text[:200] if is_vulnerable else None,
                 duration_ms=duration_ms
             )
             
@@ -254,6 +264,8 @@ class IDORAttacker:
                 attack_type=AttackType.IDOR,
                 success=False,
                 payload=f"Path {path_param}={new_id}",
+                request_url=url if 'url' in locals() else None,
+                request_method=endpoint.method.value,
                 error_message="Request timed out"
             )
         except Exception as e:
@@ -262,6 +274,8 @@ class IDORAttacker:
                 attack_type=AttackType.IDOR,
                 success=False,
                 payload=f"Path {path_param}={new_id}",
+                request_url=url if 'url' in locals() else None,
+                request_method=endpoint.method.value,
                 error_message=str(e)
             )
     
@@ -281,31 +295,12 @@ class IDORAttacker:
     
     def _is_idor_vulnerable(self, response: requests.Response) -> bool:
         """Check if response indicates IDOR vulnerability."""
-        # Successful access to resource that shouldn't be accessible
-        if response.status_code == 200:
-            try:
-                data = response.json()
-                
-                # Check for data that looks like another user's data
-                if isinstance(data, dict):
-                    sensitive_fields = ['email', 'password', 'ssn', 'credit_card', 'phone', 'address']
-                    if any(field in str(data).lower() for field in sensitive_fields):
-                        return True
-                
-                # List of multiple records might indicate data leak
-                if isinstance(data, list) and len(data) > 0:
-                    return True
-                    
-            except:
-                # Non-JSON response with 200 could still be vulnerable
-                if len(response.text) > 0:
-                    return True
-        
-        # 201 Created suggests we created/accessed something
-        if response.status_code == 201:
-            return True
-        
-        return False
+        return response.status_code == 200 and self._contains_sensitive_data(response.text)
+
+    def _contains_sensitive_data(self, response_text: str) -> bool:
+        """Check whether the response exposes user-related sensitive data."""
+        response_lower = response_text.lower()
+        return any(field in response_lower for field in ["email", "username", "account", "user"])
     
     def create_vulnerability(
         self, 
