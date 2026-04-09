@@ -70,7 +70,7 @@ class TestAttackType:
 
     def test_attack_type_count(self):
         """Test total attack type count."""
-        assert len(AttackType) == 10
+        assert len(AttackType) == 16  # Updated from 10 to 16 (added BOLA, EXCESSIVE_DATA, MASS_ASSIGNMENT, BFLA, NOSQL_INJECTION, BROKEN_AUTH)
 
 
 class TestSeverity:
