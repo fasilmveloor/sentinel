@@ -186,6 +186,61 @@ class BFLAAttacker:
         results.extend(self._test_admin_endpoints_discovery(endpoint))
         
         return results
+
+    def _is_sensitive_data(self, response_text: str) -> bool:
+        """Check whether the response exposes privileged data."""
+        response_lower = response_text.lower()
+        return any(field in response_lower for field in ["email", "username", "account", "user"])
+
+    def _extract_evidence_excerpt(self, response_text: str) -> Optional[str]:
+        """Extract a focused evidence snippet around sensitive fields."""
+        response_lower = response_text.lower()
+        for field in ["email", "username", "account", "user"]:
+            index = response_lower.find(field)
+            if index != -1:
+                start = max(index - 40, 0)
+                end = min(index + 160, len(response_text))
+                return response_text[start:end]
+        return response_text[:200] if response_text else None
+
+    def _build_attack_headers(self, token: str) -> dict[str, str]:
+        """Build the privilege-escalation attempt headers."""
+        return {
+            'User-Agent': 'Sentinel/1.0 BFLA Scanner',
+            'Accept': 'application/json',
+            'Authorization': f"Bearer {token}",
+            'X-Role': 'admin',
+        }
+
+    def _build_attack_result(
+        self,
+        endpoint: Endpoint,
+        payload: str,
+        url: str,
+        response: Optional[requests.Response] = None,
+        error_message: Optional[str] = None,
+        duration_ms: Optional[float] = None,
+        success: bool = False,
+    ) -> AttackResult:
+        """Create a BFLA result with proof fields."""
+        response_text = response.text[:500] if response is not None else None
+        evidence_excerpt = None
+        if response is not None and success:
+            evidence_excerpt = self._extract_evidence_excerpt(response.text)
+
+        return AttackResult(
+            endpoint=endpoint,
+            attack_type=AttackType.BFLA,
+            success=success,
+            payload=payload,
+            request_url=url,
+            request_method=endpoint.method.value,
+            response_status=response.status_code if response is not None else None,
+            response_body=response_text,
+            evidence_excerpt=evidence_excerpt,
+            duration_ms=duration_ms,
+            error_message=error_message,
+        )
     
     def _is_admin_endpoint(self, path: str) -> bool:
         """Check if path looks like an admin endpoint."""
@@ -220,37 +275,55 @@ class BFLAAttacker:
         if self._is_admin_endpoint(endpoint.path):
             try:
                 url = f"{self.target_url}{endpoint.path}"
-                start_time = time.time()
-                
-                response = session.request(
+                payload = f"endpoint_access: {endpoint.path}"
+                baseline_response = session.request(
                     endpoint.method.value,
                     url,
+                    headers=dict(session.headers),
+                    timeout=self.timeout
+                )
+
+                start_time = time.time()
+                attack_response = session.request(
+                    endpoint.method.value,
+                    url,
+                    headers=self._build_attack_headers(token),
                     timeout=self.timeout
                 )
                 
                 duration_ms = (time.time() - start_time) * 1000
-                
-                # If we get 200, it's accessible (potential BFLA)
-                is_vulnerable = response.status_code in [200, 201, 202, 204]
-                
-                results.append(AttackResult(
-                    endpoint=endpoint,
-                    attack_type=AttackType.AUTH_BYPASS,
-                    success=is_vulnerable,
-                    payload=f"Admin endpoint accessible with token",
-                    response_status=response.status_code,
-                    response_body=response.text[:500],
-                    duration_ms=duration_ms
-                ))
+                is_vulnerable = (
+                    attack_response.status_code in [200, 201]
+                    and self._is_sensitive_data(attack_response.text)
+                    and baseline_response is not None
+                    and baseline_response.status_code in [401, 403]
+                )
+
+                results.append(
+                    self._build_attack_result(
+                        endpoint=endpoint,
+                        payload=payload,
+                        url=url,
+                        response=attack_response,
+                        duration_ms=duration_ms,
+                        success=is_vulnerable,
+                        error_message=(
+                            "Restricted function accessible to current role"
+                            if is_vulnerable else None
+                        ),
+                    )
+                )
                 
             except Exception as e:
-                results.append(AttackResult(
-                    endpoint=endpoint,
-                    attack_type=AttackType.AUTH_BYPASS,
-                    success=False,
-                    payload="Admin endpoint test",
-                    error_message=str(e)
-                ))
+                results.append(
+                    self._build_attack_result(
+                        endpoint=endpoint,
+                        payload=f"endpoint_access: {endpoint.path}",
+                        url=f"{self.target_url}{endpoint.path}",
+                        error_message=str(e),
+                        success=False,
+                    )
+                )
         
         return results
     
@@ -270,43 +343,59 @@ class BFLAAttacker:
         
         try:
             url = f"{self.target_url}{endpoint.path}"
-            start_time = time.time()
-            
             # Build request body if needed
             body = {}
             for param in endpoint.parameters:
                 if param.location == 'body':
                     body[param.name] = param.example if param.example else self._get_default(param)
-            
-            response = session.request(
+
+            baseline_response = session.request(
                 endpoint.method.value,
                 url,
+                headers=dict(session.headers),
                 json=body if body else None,
                 timeout=self.timeout
             )
-            
+
+            attack_headers = self._build_attack_headers(token)
+
+            start_time = time.time()
+            attack_response = session.request(
+                endpoint.method.value,
+                url,
+                headers=attack_headers,
+                json=body if body else None,
+                timeout=self.timeout
+            )
             duration_ms = (time.time() - start_time) * 1000
-            
-            # Check for unauthorized access
-            is_vulnerable = self._is_bfla_vulnerable(response)
-            
-            return AttackResult(
+
+            is_vulnerable = (
+                attack_response.status_code in [200, 201]
+                and self._is_sensitive_data(attack_response.text)
+                and baseline_response is not None
+                and baseline_response.status_code in [401, 403]
+            )
+
+            return self._build_attack_result(
                 endpoint=endpoint,
-                attack_type=AttackType.AUTH_BYPASS,
+                payload=f"endpoint_access: {endpoint.path}",
+                url=url,
+                response=attack_response,
+                duration_ms=duration_ms,
                 success=is_vulnerable,
-                payload=f"Regular user '{role_name}' accessing admin endpoint",
-                response_status=response.status_code,
-                response_body=response.text[:500],
-                duration_ms=duration_ms
+                error_message=(
+                    "Restricted function accessible to current role"
+                    if is_vulnerable else None
+                ),
             )
             
         except Exception as e:
-            return AttackResult(
+            return self._build_attack_result(
                 endpoint=endpoint,
-                attack_type=AttackType.AUTH_BYPASS,
+                payload=f"endpoint_access: {endpoint.path}",
+                url=f"{self.target_url}{endpoint.path}",
+                error_message=str(e),
                 success=False,
-                payload=f"Role: {role_name}",
-                error_message=str(e)
             )
     
     def _test_horizontal_escalation(
@@ -389,9 +478,11 @@ class BFLAAttacker:
                         
                         results.append(AttackResult(
                             endpoint=synthetic_endpoint,
-                            attack_type=AttackType.AUTH_BYPASS,
-                            success=True,
-                            payload=f"Discovered admin endpoint accessible to regular user",
+                            attack_type=AttackType.BFLA,
+                            success=False,
+                            payload=f"endpoint_access: {admin_path}",
+                            request_url=url,
+                            request_method="GET",
                             response_status=response.status_code,
                             response_body=response.text[:500],
                             duration_ms=duration_ms
@@ -452,7 +543,7 @@ class BFLAAttacker:
         """Create a Vulnerability object from an attack result."""
         return Vulnerability(
             endpoint=endpoint,
-            attack_type=AttackType.AUTH_BYPASS,
+            attack_type=AttackType.BFLA,
             severity=Severity.HIGH,
             title=f"BFLA in {endpoint.full_path}",
             description=(
@@ -463,9 +554,10 @@ class BFLAAttacker:
             ),
             payload=result.payload or "",
             proof_of_concept=(
-                f"Request: {endpoint.method.value} {endpoint.path}\n"
+                f"Request: {result.request_method} {result.request_url}\n"
                 f"Attack: {result.payload}\n"
                 f"Response Status: {result.response_status}\n"
+                f"Evidence: {result.evidence_excerpt}\n"
                 f"Regular user successfully accessed admin function."
             ),
             recommendation=(
@@ -480,5 +572,5 @@ class BFLAAttacker:
             ),
             cwe_id="CWE-285",
             owasp_category="API5:2023 - Broken Function Level Authorization",
-            response_evidence=result.response_body
+            response_evidence=result.evidence_excerpt or result.response_body
         )
