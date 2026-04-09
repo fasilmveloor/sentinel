@@ -184,6 +184,64 @@ class BrokenAuthAttacker:
         results.extend(self._discover_auth_endpoints(endpoint))
         
         return results
+
+    def _is_sensitive_data(self, response_text: str) -> bool:
+        """Check whether a response exposes authenticated-only data."""
+        response_lower = response_text.lower()
+        return any(
+            field in response_lower
+            for field in ["email", "username", "account", "user", "token"]
+        )
+
+    def _extract_evidence_excerpt(self, response_text: str) -> Optional[str]:
+        """Extract a focused evidence snippet around sensitive fields."""
+        response_lower = response_text.lower()
+        for field in ["email", "username", "account", "user", "token"]:
+            index = response_lower.find(field)
+            if index != -1:
+                start = max(index - 40, 0)
+                end = min(index + 160, len(response_text))
+                return response_text[start:end]
+        return response_text[:200] if response_text else None
+
+    def _responses_equivalent(self, a: str, b: str) -> bool:
+        """Compare two response bodies semantically when possible."""
+        try:
+            a_json = json.loads(a)
+            b_json = json.loads(b)
+            return a_json == b_json
+        except Exception:
+            return a.strip() == b.strip()
+
+    def _build_attack_result(
+        self,
+        endpoint: Endpoint,
+        payload: str,
+        url: str,
+        response: Optional[requests.Response] = None,
+        error_message: Optional[str] = None,
+        duration_ms: Optional[float] = None,
+        success: bool = False,
+    ) -> AttackResult:
+        """Create a broken-auth result with minimal proof fields."""
+        response_text = response.text[:500] if response is not None else None
+        evidence_excerpt = None
+        if response is not None and success:
+            evidence_excerpt = self._extract_evidence_excerpt(response.text)
+
+        return AttackResult(
+            endpoint=endpoint,
+            attack_type=AttackType.BROKEN_AUTH,
+            success=success,
+            payload=payload,
+            request_url=url,
+            request_method=endpoint.method.value,
+            response_status=response.status_code if response is not None else None,
+            response_body=response_text,
+            evidence_excerpt=evidence_excerpt,
+            duration_ms=duration_ms,
+            error_message=error_message,
+        )
     
     def _test_password_reset(self, endpoint: Endpoint) -> list[AttackResult]:
         """Test password reset vulnerabilities."""
@@ -645,36 +703,83 @@ class BrokenAuthAttacker:
     ) -> list[AttackResult]:
         """Test authentication bypass on protected endpoints."""
         results = []
-        
-        # Test without auth header
-        try:
-            url = f"{self.target_url}{endpoint.path}"
-            headers = {k: v for k, v in self.session.headers.items() 
-                      if k != 'Authorization'}
-            
-            start_time = time.time()
-            response = self.session.request(
-                endpoint.method.value,
-                url,
-                headers=headers,
-                timeout=self.timeout
-            )
-            duration_ms = (time.time() - start_time) * 1000
-            
-            if response.status_code == 200:
-                results.append(AttackResult(
-                    endpoint=endpoint,
-                    attack_type=AttackType.AUTH_BYPASS,
-                    success=True,
-                    payload="No authentication",
-                    response_status=response.status_code,
-                    response_body=response.text[:500],
-                    duration_ms=duration_ms,
-                    error_message="Protected endpoint accessible without auth"
-                ))
-        except Exception:
-            pass
-        
+        url = f"{self.target_url}{endpoint.path}"
+        auth_variants: list[tuple[str, dict[str, str]]] = []
+
+        base_headers = {
+            key: value for key, value in self.session.headers.items()
+            if key != 'Authorization'
+        }
+
+        baseline_response: Optional[requests.Response] = None
+        if auth_token:
+            try:
+                baseline_response = self.session.request(
+                    endpoint.method.value,
+                    url,
+                    headers={**base_headers, "Authorization": f"Bearer {auth_token}"},
+                    timeout=self.timeout
+                )
+            except Exception:
+                baseline_response = None
+
+        auth_variants.append(("no_auth", base_headers))
+        auth_variants.append((
+            "invalid_token",
+            {**base_headers, "Authorization": "Bearer invalid-token"},
+        ))
+
+        if auth_token:
+            auth_variants.append((
+                "reused_token",
+                {**base_headers, "Authorization": f"Bearer {auth_token}"},
+            ))
+
+        for payload, headers in auth_variants:
+            try:
+                start_time = time.time()
+                response = self.session.request(
+                    endpoint.method.value,
+                    url,
+                    headers=headers,
+                    timeout=self.timeout
+                )
+                duration_ms = (time.time() - start_time) * 1000
+                success = (
+                    response.status_code in [200, 201]
+                    and self._is_sensitive_data(response.text)
+                    and baseline_response is not None
+                    and baseline_response.status_code in [200, 201]
+                    and self._responses_equivalent(baseline_response.text, response.text)
+                )
+                results.append(
+                    self._build_attack_result(
+                        endpoint=endpoint,
+                        payload=payload,
+                        url=url,
+                        response=response,
+                        duration_ms=duration_ms,
+                        success=success,
+                        error_message=(
+                            "Protected endpoint matched authenticated baseline without valid authentication"
+                            if success else (
+                                "Missing valid baseline for comparison"
+                                if baseline_response is None else None
+                            )
+                        ),
+                    )
+                )
+            except Exception as exc:
+                results.append(
+                    self._build_attack_result(
+                        endpoint=endpoint,
+                        payload=payload,
+                        url=url,
+                        error_message=str(exc),
+                        success=False,
+                    )
+                )
+
         return results
     
     def _discover_auth_endpoints(self, endpoint: Endpoint) -> list[AttackResult]:
@@ -747,7 +852,7 @@ class BrokenAuthAttacker:
         """Create a Vulnerability object from an attack result."""
         return Vulnerability(
             endpoint=endpoint,
-            attack_type=AttackType.AUTH_BYPASS,
+            attack_type=AttackType.BROKEN_AUTH,
             severity=Severity.HIGH,
             title=f"Broken Authentication in {endpoint.full_path}",
             description=(
@@ -758,9 +863,10 @@ class BrokenAuthAttacker:
             ),
             payload=result.payload or "",
             proof_of_concept=(
-                f"Request: {endpoint.method.value} {endpoint.path}\n"
+                f"Request: {result.request_method} {result.request_url}\n"
                 f"Payload: {result.payload}\n"
                 f"Response Status: {result.response_status}\n"
+                f"Evidence: {result.evidence_excerpt}\n"
                 f"Authentication bypass successful."
             ),
             recommendation=(
@@ -776,6 +882,6 @@ class BrokenAuthAttacker:
                 "10. Implement proper input validation"
             ),
             cwe_id="CWE-287",
-            owasp_category="API7:2023 - Server Side Request Forgery",
-            response_evidence=result.response_body
+            owasp_category="API2:2023 - Broken Authentication",
+            response_evidence=result.evidence_excerpt or result.response_body
         )
