@@ -122,20 +122,25 @@ class BOLAAttacker:
         # Setup fallback session if no multi-user credentials
         if not self.sessions and auth_token:
             self._setup_fallback_session(auth_token)
-        
+
         # Extract resource IDs from path
         path_ids = self._extract_path_ids(endpoint.path)
-        
+        concrete_id = self._extract_concrete_id(endpoint.path)
+
         # Step 1: Discover resources with each user
         if endpoint.method.value == 'GET':
             discovered = self._discover_resources(endpoint)
             for resource_id in discovered:
                 results.extend(self._test_resource_access(endpoint, resource_id, path_ids))
-        
+
         # Step 2: Test path-based IDOR
         for path_id in path_ids:
             results.extend(self._test_path_bola(endpoint, path_id))
-        
+
+        # Step 2b: Test concrete IDs already present in the path
+        if concrete_id:
+            results.extend(self._test_concrete_path_bola(endpoint, concrete_id))
+
         # Step 3: Test with discovered IDs from other endpoints
         for resource_type, resource_ids in self.discovered_resources.items():
             results.extend(self._test_discovered_ids(endpoint, resource_ids, path_ids))
@@ -160,6 +165,66 @@ class BOLAAttacker:
             id_word in m.lower() 
             for id_word in ['id', 'user', 'account', 'vehicle', 'order', 'video', 'post', 'report']
         )]
+
+    def _extract_concrete_id(self, path: str) -> Optional[str]:
+        """Extract a concrete numeric ID from the path when present."""
+        matches = re.findall(r'/(\d+)(?:/|$)', path)
+        return matches[-1] if matches else None
+
+    def _is_sensitive_data(self, response_text: str) -> bool:
+        """Check whether the response exposes user-related data."""
+        response_lower = response_text.lower()
+        return any(field in response_lower for field in ["email", "username", "account", "user"])
+
+    def _extract_evidence_excerpt(self, response_text: str) -> Optional[str]:
+        """Extract a focused evidence snippet around sensitive fields."""
+        response_lower = response_text.lower()
+        for field in ["email", "username", "account", "user"]:
+            index = response_lower.find(field)
+            if index != -1:
+                start = max(index - 40, 0)
+                end = min(index + 160, len(response_text))
+                return response_text[start:end]
+        return response_text[:200] if response_text else None
+
+    def _responses_equivalent(self, a: str, b: str) -> bool:
+        """Compare two response bodies semantically when possible."""
+        try:
+            a_json = json.loads(a)
+            b_json = json.loads(b)
+            return a_json == b_json
+        except Exception:
+            return a.strip() == b.strip()
+
+    def _build_attack_result(
+        self,
+        endpoint: Endpoint,
+        payload: str,
+        url: str,
+        response: Optional[requests.Response] = None,
+        error_message: Optional[str] = None,
+        duration_ms: Optional[float] = None,
+        success: bool = False,
+    ) -> AttackResult:
+        """Create a BOLA result with proof fields."""
+        response_text = response.text[:500] if response is not None else None
+        evidence_excerpt = None
+        if response is not None and success:
+            evidence_excerpt = self._extract_evidence_excerpt(response.text)
+
+        return AttackResult(
+            endpoint=endpoint,
+            attack_type=AttackType.BOLA,
+            success=success,
+            payload=payload,
+            request_url=url,
+            request_method=endpoint.method.value,
+            response_status=response.status_code if response is not None else None,
+            response_body=response_text,
+            evidence_excerpt=evidence_excerpt,
+            duration_ms=duration_ms,
+            error_message=error_message,
+        )
     
     def _discover_resources(self, endpoint: Endpoint) -> list[str]:
         """Try to discover resource IDs from list endpoints."""
@@ -319,6 +384,78 @@ class BOLAAttacker:
                 ))
         
         return results
+
+    def _test_concrete_path_bola(
+        self,
+        endpoint: Endpoint,
+        original_id: str,
+    ) -> list[AttackResult]:
+        """Test BOLA against an endpoint that already contains a concrete ID."""
+        results: list[AttackResult] = []
+        if not self.sessions:
+            return results
+
+        session = list(self.sessions.values())[0]
+        baseline_url = f"{self.target_url}{endpoint.path}"
+
+        try:
+            baseline_response = session.request(
+                endpoint.method.value,
+                baseline_url,
+                timeout=self.timeout
+            )
+        except Exception:
+            baseline_response = None
+
+        for new_id in self._generate_test_ids(original_id):
+            modified_path = re.sub(rf'/{re.escape(original_id)}(?:/|$)', f'/{new_id}', endpoint.path, count=1)
+            if modified_path == endpoint.path:
+                continue
+
+            url = f"{self.target_url}{modified_path}"
+            try:
+                start_time = time.time()
+                attack_response = session.request(
+                    endpoint.method.value,
+                    url,
+                    timeout=self.timeout
+                )
+                duration_ms = (time.time() - start_time) * 1000
+                success = (
+                    attack_response.status_code in [200, 201]
+                    and self._is_sensitive_data(attack_response.text)
+                    and baseline_response is not None
+                    and not self._responses_equivalent(baseline_response.text, attack_response.text)
+                )
+                results.append(
+                    self._build_attack_result(
+                        endpoint=endpoint,
+                        payload=f"id_swap: {original_id} -> {new_id}",
+                        url=url,
+                        response=attack_response,
+                        duration_ms=duration_ms,
+                        success=success,
+                        error_message=(
+                            "Unauthorized object access with valid authentication"
+                            if success else (
+                                "Missing valid baseline for comparison"
+                                if baseline_response is None else None
+                            )
+                        ),
+                    )
+                )
+            except Exception as exc:
+                results.append(
+                    self._build_attack_result(
+                        endpoint=endpoint,
+                        payload=f"id_swap: {original_id} -> {new_id}",
+                        url=url,
+                        error_message=str(exc),
+                        success=False,
+                    )
+                )
+
+        return results
     
     def _test_path_bola(
         self,
@@ -327,44 +464,85 @@ class BOLAAttacker:
     ) -> list[AttackResult]:
         """Test BOLA by manipulating path parameters."""
         results = []
-        
-        # Generate test IDs
-        test_ids = self.NUMERIC_IDS + self.UUID_IDS
-        
-        # Add discovered IDs
-        for resource_ids in self.discovered_resources.values():
-            test_ids.extend(resource_ids[:5])
-        
-        test_ids = list(set(test_ids))
-        
-        for test_id in test_ids:
-            for session_id, session in self.sessions.items():
-                try:
-                    modified_path = endpoint.path.replace(f"{{{path_param}}}", test_id)
-                    url = f"{self.target_url}{modified_path}"
-                    
-                    start_time = time.time()
-                    response = session.request(
-                        endpoint.method.value,
-                        url,
-                        timeout=self.timeout
-                    )
-                    duration_ms = (time.time() - start_time) * 1000
-                    
-                    is_vulnerable = self._is_bola_vulnerable(response, test_id)
-                    
-                    results.append(AttackResult(
+        if not self.sessions:
+            return results
+
+        session = list(self.sessions.values())[0]
+        original_id = None
+        for candidate in self.NUMERIC_IDS:
+            baseline_path = endpoint.path.replace(f"{{{path_param}}}", candidate)
+            baseline_url = f"{self.target_url}{baseline_path}"
+            try:
+                baseline_response = session.request(
+                    endpoint.method.value,
+                    baseline_url,
+                    timeout=self.timeout
+                )
+                if baseline_response.status_code in [200, 201]:
+                    original_id = candidate
+                    break
+            except Exception:
+                continue
+
+        if original_id is None:
+            return results
+
+        baseline_path = endpoint.path.replace(f"{{{path_param}}}", original_id)
+        baseline_url = f"{self.target_url}{baseline_path}"
+        try:
+            baseline_response = session.request(
+                endpoint.method.value,
+                baseline_url,
+                timeout=self.timeout
+            )
+        except Exception:
+            baseline_response = None
+
+        for test_id in self._generate_test_ids(original_id):
+            modified_path = endpoint.path.replace(f"{{{path_param}}}", test_id)
+            url = f"{self.target_url}{modified_path}"
+
+            try:
+                start_time = time.time()
+                attack_response = session.request(
+                    endpoint.method.value,
+                    url,
+                    timeout=self.timeout
+                )
+                duration_ms = (time.time() - start_time) * 1000
+                success = (
+                    attack_response.status_code in [200, 201]
+                    and self._is_sensitive_data(attack_response.text)
+                    and baseline_response is not None
+                    and not self._responses_equivalent(baseline_response.text, attack_response.text)
+                )
+                results.append(
+                    self._build_attack_result(
                         endpoint=endpoint,
-                        attack_type=AttackType.IDOR,
-                        success=is_vulnerable,
-                        payload=f"Path {path_param}={test_id} (user={session_id})",
-                        response_status=response.status_code,
-                        response_body=response.text[:500],
-                        duration_ms=duration_ms
-                    ))
-                    
-                except Exception:
-                    pass
+                        payload=f"id_swap: {original_id} -> {test_id}",
+                        url=url,
+                        response=attack_response,
+                        duration_ms=duration_ms,
+                        success=success,
+                        error_message=(
+                            "Unauthorized object access with valid authentication"
+                            if success else (
+                                "Missing valid baseline for comparison"
+                                if baseline_response is None else None
+                            )
+                        ),
+                    )
+                )
+            except Exception as exc:
+                results.append(
+                    self._build_attack_result(
+                        endpoint=endpoint,
+                        payload=f"id_swap: {original_id} -> {test_id}",
+                        url=url,
+                        error_message=str(exc),
+                        success=False,
+                    )
+                )
         
         return results
     
@@ -443,7 +621,7 @@ class BOLAAttacker:
         """Create a Vulnerability object from an attack result."""
         return Vulnerability(
             endpoint=endpoint,
-            attack_type=AttackType.IDOR,
+            attack_type=AttackType.BOLA,
             severity=Severity.HIGH,
             title=f"BOLA Vulnerability in {endpoint.full_path}",
             description=(
@@ -455,9 +633,10 @@ class BOLAAttacker:
             ),
             payload=result.payload or "",
             proof_of_concept=(
-                f"Request: {endpoint.method.value} {endpoint.path}\n"
+                f"Request: {result.request_method} {result.request_url}\n"
                 f"Payload: {result.payload}\n"
                 f"Response Status: {result.response_status}\n"
+                f"Evidence: {result.evidence_excerpt}\n"
                 f"Successfully accessed resource without proper authorization."
             ),
             recommendation=(
@@ -470,5 +649,5 @@ class BOLAAttacker:
             ),
             cwe_id="CWE-639",
             owasp_category="API1:2023 - Broken Object Level Authorization",
-            response_evidence=result.response_body
+            response_evidence=result.evidence_excerpt or result.response_body
         )
