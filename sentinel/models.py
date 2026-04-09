@@ -13,9 +13,10 @@ v2.0 Updates:
 - Added ReportFormat enum for multiple output formats
 """
 
+import json
 from enum import Enum
 from typing import Any, Optional
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, PrivateAttr
 
 
 class HttpMethod(str, Enum):
@@ -39,6 +40,13 @@ class AttackType(str, Enum):
     JWT = "jwt"
     CMD_INJECTION = "cmd_injection"
     RATE_LIMIT = "rate_limit"
+    # v1.0.0 Enhanced Attacks
+    BOLA = "bola"  # Broken Object Level Authorization
+    EXCESSIVE_DATA = "excessive_data"  # Excessive Data Exposure
+    MASS_ASSIGNMENT = "mass_assignment"
+    BFLA = "bfla"  # Broken Function Level Authorization
+    NOSQL_INJECTION = "nosql_injection"
+    BROKEN_AUTH = "broken_auth"
     # Future Attacks
     XXE = "xxe"
     PATH_TRAVERSAL = "path_traversal"
@@ -133,6 +141,13 @@ class Vulnerability(BaseModel):
     response_evidence: Optional[str] = None
     cvss_score: Optional[float] = None  # CVSS severity score
     references: list[str] = Field(default_factory=list)  # Reference URLs
+    
+    @property
+    def signature(self) -> str:
+        """Generate a unique signature for deduplication."""
+        # Create a signature based on endpoint, attack type, and vulnerability type
+        # This prevents duplicate reports of the same vulnerability
+        return f"{self.endpoint.full_path}|{self.attack_type.value}|{self.title[:50]}"
 
 
 class ScanConfig(BaseModel):
@@ -164,6 +179,26 @@ class ScanResult(BaseModel):
     duration_seconds: float = 0.0
     ai_decisions: list[dict] = Field(default_factory=list)
     
+    # Private field for deduplication (not serialized)
+    _vulnerabilities_seen: set[str] = PrivateAttr(default_factory=set)
+    
+    def add_vulnerability(self, vulnerability: Vulnerability) -> bool:
+        """Add a vulnerability with deduplication.
+        
+        Args:
+            vulnerability: The vulnerability to add
+            
+        Returns:
+            True if vulnerability was added (new), False if duplicate
+        """
+        signature = vulnerability.signature
+        if signature in self._vulnerabilities_seen:
+            return False  # Duplicate, not added
+        
+        self._vulnerabilities_seen.add(signature)
+        self.vulnerabilities.append(vulnerability)
+        return True
+    
     @property
     def vulnerability_count(self) -> int:
         """Total number of vulnerabilities found."""
@@ -193,6 +228,25 @@ class ScanResult(BaseModel):
     def info_count(self) -> int:
         """Number of info severity findings."""
         return sum(1 for v in self.vulnerabilities if v.severity == Severity.INFO)
+
+
+class ScanTask(BaseModel):
+    """A minimal unit of autonomous scan work."""
+    endpoint: Endpoint
+    attack_type: AttackType
+    parameters: list[str] = Field(default_factory=list)
+    artifacts: dict[str, Any] = Field(default_factory=dict)
+    reason: str
+
+    @property
+    def signature(self) -> str:
+        """Stable signature for deduplication."""
+        params = ",".join(sorted(self.parameters))
+        artifacts = json.dumps(self.artifacts, sort_keys=True, default=str)
+        return (
+            f"{self.endpoint.full_path}|{self.attack_type.value}|"
+            f"{params}|{artifacts}"
+        )
 
 
 class AIAttackDecision(BaseModel):
