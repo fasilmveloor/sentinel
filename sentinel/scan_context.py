@@ -11,26 +11,6 @@ from .models import AttackResult
 class ScanContext:
     """Tracks minimal state discovered during an autonomous scan."""
 
-    TOKEN_KEYS = {
-        "token",
-        "auth_token",
-        "access_token",
-        "refresh_token",
-        "jwt",
-        "session",
-        "session_token",
-        "bearer_token",
-    }
-
-    ID_KEYS = {
-        "id",
-        "user_id",
-        "account_id",
-        "object_id",
-        "resource_id",
-        "record_id",
-    }
-
     def __init__(self):
         self.discovered_ids: set[str] = set()
         self.tokens: set[str] = set()
@@ -89,7 +69,7 @@ class ScanContext:
             return
 
         normalized_key = (key_hint or "").lower()
-        if "token" in normalized_key or normalized_key in self.TOKEN_KEYS:
+        if "token" in normalized_key:
             self.tokens.add(text)
-        elif "id" in normalized_key or normalized_key in self.ID_KEYS:
+        elif "id" in normalized_key:
             self.discovered_ids.add(text)

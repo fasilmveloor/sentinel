@@ -47,9 +47,6 @@ class AttackType(str, Enum):
     BFLA = "bfla"  # Broken Function Level Authorization
     NOSQL_INJECTION = "nosql_injection"
     BROKEN_AUTH = "broken_auth"
-    # Future Attacks
-    XXE = "xxe"
-    PATH_TRAVERSAL = "path_traversal"
 
 
 class Severity(str, Enum):
@@ -118,8 +115,11 @@ class AttackResult(BaseModel):
     attack_type: AttackType
     success: bool  # True if vulnerability found
     payload: Optional[str] = None
+    request_url: Optional[str] = None
+    request_method: Optional[str] = None
     response_status: Optional[int] = None
     response_body: Optional[str] = None
+    evidence_excerpt: Optional[str] = None
     error_message: Optional[str] = None
     timestamp: Optional[str] = None
     duration_ms: Optional[float] = None

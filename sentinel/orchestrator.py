@@ -53,6 +53,7 @@ class SentinelOrchestrator:
         self.queue = TaskQueue()
         self._attackers: dict[AttackType, Any] = {}
         self.endpoints: list[Endpoint] = endpoints or []
+        self.vulnerabilities: list[Any] = []
 
     def push_task(self, task: ScanTask) -> bool:
         """Queue a task for execution."""
@@ -75,10 +76,19 @@ class SentinelOrchestrator:
             if self.context.has_seen(task.signature):
                 continue
 
-            attack_results = self._execute_task(task)
+            attack_results, attacker = self._execute_task(task)
             self.context.mark_executed(task.signature)
             for result in attack_results:
                 self.context.update_from_result(result)
+                if (
+                    result.success
+                    and result.request_url is not None
+                    and result.response_status is not None
+                    and result.evidence_excerpt is not None
+                ):
+                    self.vulnerabilities.append(
+                        attacker.create_vulnerability(result, task.endpoint)
+                    )
             results.extend(attack_results)
             self.tasks_executed += 1
 
@@ -88,34 +98,46 @@ class SentinelOrchestrator:
 
         return results
 
-    def _execute_task(self, task: ScanTask) -> list[AttackResult]:
+    def _execute_task(self, task: ScanTask) -> tuple[list[AttackResult], Any]:
         """Execute a single task using the appropriate deterministic attacker."""
         attacker = self._get_attacker(task.attack_type)
         if attacker is None:
-            return []
+            return [], None
 
         if task.attack_type == AttackType.IDOR:
             return self._execute_idor_task(attacker, task)
 
         if task.attack_type in self.AUTH_TOKEN_ATTACKS:
             auth_token = self._extract_auth_token(task)
-            return attacker.attack(task.endpoint, auth_token)
+            return attacker.attack(task.endpoint, auth_token), attacker
 
         parameters = task.parameters or None
-        return attacker.attack(task.endpoint, parameters)
+        return attacker.attack(task.endpoint, parameters), attacker
 
-    def _execute_idor_task(self, attacker: IDORAttacker, task: ScanTask) -> list[AttackResult]:
+    def _execute_idor_task(self, attacker: IDORAttacker, task: ScanTask) -> tuple[list[AttackResult], IDORAttacker]:
         """Execute an IDOR task using a discovered ID value when available."""
         candidate_id = task.artifacts.get("candidate_id")
         parameters = task.parameters or None
+        auth_token = self._extract_auth_token(task)
 
         if not candidate_id:
-            return attacker.attack(task.endpoint, parameters_to_test=parameters)
+            return attacker.attack(task.endpoint, auth_token=auth_token, parameters_to_test=parameters), attacker
 
         temp_attacker = IDORAttacker(self.target_url, self.timeout)
         temp_attacker.session.headers.update(attacker.session.headers)
-        temp_attacker.ID_PATTERNS = [str(candidate_id)]
-        return temp_attacker.attack(task.endpoint, parameters_to_test=parameters)
+        temp_attacker.ID_PATTERNS = self._build_candidate_patterns(candidate_id)
+        return temp_attacker.attack(task.endpoint, auth_token=auth_token, parameters_to_test=parameters), temp_attacker
+
+    def _build_candidate_patterns(self, candidate_id: Any) -> list[str]:
+        """Build a minimal set of alternate IDs from a discovered ID."""
+        candidate_text = str(candidate_id)
+        if candidate_text.isdigit():
+            candidate_int = int(candidate_text)
+            return [
+                str(max(candidate_int - 1, 0)),
+                str(candidate_int + 1),
+            ]
+        return [candidate_text]
 
     def _extract_auth_token(self, task: ScanTask) -> Optional[str]:
         """Extract an auth token from the task artifacts if present."""
@@ -145,11 +167,13 @@ class SentinelOrchestrator:
                     endpoint=endpoint,
                     attack_type=AttackType.IDOR,
                     parameters=parameters,
-                    artifacts={"candidate_id": discovered_id},
+                    artifacts={
+                        "candidate_id": discovered_id,
+                        "auth_token": next(iter(self.context.tokens), None),
+                    },
                     reason="discovered IDs available",
                 )
-                if not self.context.has_seen(task.signature):
-                    self.queue.push(task)
+                self.queue.push(task)
 
     def _get_id_parameters(self, endpoint: Endpoint) -> list[str]:
         """Return ID-like parameter names for an endpoint."""

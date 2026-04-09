@@ -37,17 +37,6 @@ from .tasks import TaskQueue
 from .scan_context import ScanContext
 from .orchestrator import SentinelOrchestrator
 
-# v2.5 Agentic Features
-from .autonomous import (
-    AutonomousScanner,
-    PlannerAgent,
-    ExecutorAgent,
-    AnalyzerAgent,
-    ScanPlan,
-    AttackChain,
-    AutonomousScanResult,
-    run_autonomous_scan
-)
 from .passive import (
     PassiveScanner,
     PassiveFinding,
@@ -148,16 +137,6 @@ __all__ = [
     'create_agent',
     'OpenAPIParser',
     'MarkdownReporter',
-    
-    # v2.5 Agentic
-    'AutonomousScanner',
-    'PlannerAgent',
-    'ExecutorAgent',
-    'AnalyzerAgent',
-    'ScanPlan',
-    'AttackChain',
-    'AutonomousScanResult',
-    'run_autonomous_scan',
     
     # Passive Scanner
     'PassiveScanner',

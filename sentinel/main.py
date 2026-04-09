@@ -37,7 +37,8 @@ from .models import (
     Vulnerability,
     Severity,
     LLMProvider,
-    ReportFormat
+    ReportFormat,
+    ScanTask,
 )
 from .parser import SwaggerParser, get_sample_endpoint_values, SwaggerParseError
 from .agent import SentinelAgent, AIAgentError
@@ -65,8 +66,8 @@ from .reporter import Reporter
 from .html_reporter import HTMLReporter
 from .json_reporter import JSONReporter, SARIFReporter, JUnitReporter
 
-# v2.5 Agentic imports
-from .autonomous import AutonomousScanner, run_autonomous_scan
+# v3 Autonomous imports
+from .orchestrator import SentinelOrchestrator
 from .passive import PassiveScanner, create_passive_scanner
 from .chat import SentinelChat, run_interactive_session
 
@@ -195,15 +196,83 @@ def print_vulnerabilities(vulnerabilities: list[Vulnerability]):
         console.print(panel)
 
 
-def get_severity_emoji(severity: Severity) -> str:
-    """Get emoji for severity level."""
-    return {
-        Severity.CRITICAL: "🔴",
-        Severity.HIGH: "🟠",
-        Severity.MEDIUM: "🟡",
-        Severity.LOW: "🔵",
-        Severity.INFO: "ℹ️"
-    }.get(severity, "⚪")
+def _seed_autonomous_tasks(
+    orchestrator: SentinelOrchestrator,
+    endpoints: list[Endpoint],
+    agent: Optional[SentinelAgent],
+    auth_token: Optional[str],
+) -> list[dict]:
+    """Seed the orchestrator queue from endpoint analysis decisions."""
+    ai_decisions: list[dict] = []
+
+    for endpoint in endpoints:
+        if agent:
+            decision = agent.analyze_endpoint(endpoint)
+            attack_types = decision.recommended_attacks
+            parameters = decision.parameters_to_test
+            ai_decisions.append({
+                'endpoint': endpoint.full_path,
+                'attacks': [attack.value for attack in attack_types],
+                'reasoning': decision.reasoning,
+            })
+        else:
+            attack_types = list(AttackType)
+            parameters = [parameter.name for parameter in endpoint.parameters]
+
+        for attack_type in attack_types:
+            artifacts = {}
+            if auth_token and attack_type in orchestrator.AUTH_TOKEN_ATTACKS:
+                artifacts["auth_token"] = auth_token
+
+            orchestrator.push_task(
+                ScanTask(
+                    endpoint=endpoint,
+                    attack_type=attack_type,
+                    parameters=parameters,
+                    artifacts=artifacts,
+                    reason="initial analysis",
+                )
+            )
+
+    return ai_decisions
+
+
+def _build_scan_result(
+    target: str,
+    swagger: str,
+    output: str,
+    report_format: ReportFormat,
+    timeout: int,
+    llm_provider: LLMProvider,
+    endpoints: list[Endpoint],
+    attack_results: list,
+    vulnerabilities: list[Vulnerability],
+    ai_decisions: list[dict],
+    start_time: float,
+    auth_token: Optional[str] = None,
+) -> ScanResult:
+    """Convert orchestrator output into the existing ScanResult model."""
+    config = ScanConfig(
+        target_url=target,
+        swagger_path=swagger,
+        output_path=output,
+        output_format=report_format,
+        attack_types=list(AttackType),
+        timeout=timeout,
+        verbose=False,
+        max_endpoints=len(endpoints),
+        llm_provider=llm_provider,
+        auth_token=auth_token,
+    )
+    result = ScanResult(config=config)
+    result.endpoints_tested = endpoints
+    result.attack_results = attack_results
+    result.vulnerabilities = vulnerabilities
+    result.total_requests = len(attack_results)
+    result.duration_seconds = time.time() - start_time
+    result.ai_decisions = ai_decisions
+
+    return result
 
 
 @click.group()
@@ -576,8 +645,6 @@ def autonomous(
     Example:
         sentinel autonomous -s api.yaml -t https://api.example.com
     """
-    import asyncio
-    
     print_banner_v25()
     
     llm_providers = {
@@ -593,6 +660,8 @@ def autonomous(
     console.print(f"   Spec: {swagger}")
     
     try:
+        start_time = time.time()
+
         # Parse endpoints
         parser = SwaggerParser(swagger)
         endpoints = parser.parse()
@@ -603,23 +672,40 @@ def autonomous(
         
         console.print(f"[green]Found {len(endpoints)} endpoints[/green]")
         
-        # Setup auth headers
-        headers = {}
-        if auth_token:
-            headers['Authorization'] = f'Bearer {auth_token}'
-        
-        # Run autonomous scan
+        # Initialize planner
+        agent = None
+        try:
+            agent = SentinelAgent(provider=llm_providers[llm])
+        except AIAgentError as e:
+            console.print(f"[yellow]AI agent unavailable: {e}[/yellow]")
+            console.print("[yellow]Falling back to rule-based seeding[/yellow]")
+
+        orchestrator = SentinelOrchestrator(
+            target_url=target,
+            timeout=5,
+            max_iterations=max(len(endpoints) * 2, 5),
+            max_tasks=max(len(endpoints) * 4, 50),
+            endpoints=endpoints,
+        )
+        ai_decisions = _seed_autonomous_tasks(orchestrator, endpoints, agent, auth_token)
+
         console.print("\n🚀 [bold]Starting Autonomous Scan...[/bold]\n")
-        
-        async def run_scan():
-            return await run_autonomous_scan(
-                endpoints=endpoints,
-                base_url=target,
-                headers=headers,
-                ai_provider=llm_providers[llm]
-            )
-        
-        result = asyncio.run(run_scan())
+
+        attack_results = orchestrator.run()
+        result = _build_scan_result(
+            target=target,
+            swagger=swagger,
+            output=output,
+            report_format=ReportFormat.MARKDOWN,
+            timeout=5,
+            llm_provider=llm_providers[llm],
+            endpoints=endpoints,
+            attack_results=attack_results,
+            vulnerabilities=orchestrator.vulnerabilities,
+            ai_decisions=ai_decisions,
+            start_time=start_time,
+            auth_token=auth_token,
+        )
         
         # Display results
         console.print("\n" + "="*60)
@@ -631,83 +717,33 @@ def autonomous(
         summary_table.add_column("Metric", style="cyan")
         summary_table.add_column("Value", style="green")
         
-        summary_table.add_row("Endpoints Scanned", str(result.endpoints_scanned))
+        summary_table.add_row("Endpoints Scanned", str(len(result.endpoints_tested)))
         summary_table.add_row("Total Requests", str(result.total_requests))
-        summary_table.add_row("Findings", str(len(result.findings)))
-        summary_table.add_row("Attack Chains", str(len(result.attack_chains)))
-        summary_table.add_row("Duration", str(result.end_time - result.start_time).split('.')[0] if result.end_time else "N/A")
+        summary_table.add_row("Findings", str(result.vulnerability_count))
+        summary_table.add_row("Attack Chains", "0")
+        summary_table.add_row("Duration", f"{result.duration_seconds:.2f}s")
         
         console.print(summary_table)
-        
-        # Attack Chains
-        if result.attack_chains:
-            console.print("\n🔗 [bold red]Attack Chains Discovered:[/bold red]\n")
-            for chain in result.attack_chains:
-                chain_panel = Panel(
-                    f"[bold]{chain.description}[/bold]\n\n"
-                    f"Exploit Path:\n{chain.exploit_path}",
-                    title=f"⚡ {chain.name} ({chain.severity.value.upper()})",
-                    border_style="red" if chain.severity in [Severity.CRITICAL, Severity.HIGH] else "yellow"
-                )
-                console.print(chain_panel)
-        
-        # Findings summary
-        if result.summary:
-            severity_table = Table(title="Findings by Severity")
-            severity_table.add_column("Severity", style="cyan")
-            severity_table.add_column("Count", style="green")
-            
-            for sev in ['critical', 'high', 'medium', 'low']:
-                count = result.summary.get(sev, 0)
-                if count > 0:
-                    severity_table.add_row(sev.upper(), str(count))
-            
-            console.print(severity_table)
+
+        severity_table = Table(title="Findings by Severity")
+        severity_table.add_column("Severity", style="cyan")
+        severity_table.add_column("Count", style="green")
+        severity_table.add_row("CRITICAL", str(result.critical_count))
+        severity_table.add_row("HIGH", str(result.high_count))
+        severity_table.add_row("MEDIUM", str(result.medium_count))
+        severity_table.add_row("LOW", str(result.low_count))
+        console.print(severity_table)
         
         # Generate report
         console.print(f"\n📝 [bold]Generating report: {output}[/bold]")
-        
-        # Create report content
-        report_content = f"""# Sentinel Autonomous Scan Report
 
-**Generated**: {result.start_time.isoformat()}
-**Target**: {target}
-**Status**: {result.state.value}
-
-## Summary
-
-- **Endpoints Scanned**: {result.endpoints_scanned}
-- **Total Requests**: {result.total_requests}
-- **Findings**: {len(result.findings)}
-- **Attack Chains**: {len(result.attack_chains)}
-
-### Severity Distribution
-
-| Severity | Count |
-|----------|-------|
-| Critical | {result.summary.get('critical', 0)} |
-| High | {result.summary.get('high', 0)} |
-| Medium | {result.summary.get('medium', 0)} |
-| Low | {result.summary.get('low', 0)} |
-
-"""
-        
-        if result.attack_chains:
-            report_content += "## Attack Chains\n\n"
-            for chain in result.attack_chains:
-                report_content += f"### {chain.name}\n\n"
-                report_content += f"**Severity**: {chain.severity.value}\n\n"
-                report_content += f"{chain.description}\n\n"
-                report_content += f"**Exploit Path**:\n```\n{chain.exploit_path}\n```\n\n"
-        
-        with open(output, 'w') as f:
-            f.write(report_content)
-        
-        console.print(f"[green]Report saved to: {output}[/green]")
+        reporter = Reporter(output)
+        report_path = reporter.save(result)
+        console.print(f"[green]Report saved to: {report_path}[/green]")
         
         # Exit code
-        critical = result.summary.get('critical', 0)
-        high = result.summary.get('high', 0)
+        critical = result.critical_count
+        high = result.high_count
         
         if critical > 0:
             console.print("\n[bold red]❌ Critical vulnerabilities found![/bold red]")
@@ -726,8 +762,6 @@ def autonomous(
         sys.exit(1)
     except Exception as e:
         console.print(f"\n[red]Error: {e}[/red]")
-        import traceback
-        traceback.print_exc()
         sys.exit(1)
 
 
