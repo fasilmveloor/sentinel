@@ -90,6 +90,11 @@ class AuthBypassAttacker:
         """
         results: list[AttackResult] = []
         
+        # Handle API misuse - if valid_token is a list, it's actually parameters
+        if valid_token is not None and isinstance(valid_token, list):
+            parameters_to_test = valid_token
+            valid_token = None
+        
         # Only test endpoints that should require auth
         if not endpoint.requires_auth:
             # Still test - might be protected but not marked in spec
