@@ -621,7 +621,7 @@ class BOLAAttacker:
         """Create a Vulnerability object from an attack result."""
         return Vulnerability(
             endpoint=endpoint,
-            attack_type=AttackType.BOLA,
+            attack_type=AttackType.IDOR,
             severity=Severity.HIGH,
             title=f"BOLA Vulnerability in {endpoint.full_path}",
             description=(

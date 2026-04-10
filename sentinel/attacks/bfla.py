@@ -203,20 +203,28 @@ class BFLAAttacker:
                 return response_text[start:end]
         return response_text[:200] if response_text else None
 
-    def _build_attack_headers(self, token: str) -> dict[str, str]:
-        """Build the privilege-escalation attempt headers."""
-        return {
+    def _build_mutation_headers(self, token: str) -> list[dict[str, str]]:
+        """Build candidate privilege-escalation header mutations."""
+        base = {
             'User-Agent': 'Sentinel/1.0 BFLA Scanner',
             'Accept': 'application/json',
             'Authorization': f"Bearer {token}",
-            'X-Role': 'admin',
         }
+
+        return [
+            {**base, 'X-Role': 'admin'},
+            {**base, 'X-User-Role': 'admin'},
+            {**base, 'X-Admin': 'true'},
+            {**base, 'X-Forwarded-User': 'admin'},
+            {**base, 'X-Original-User': 'admin'},
+        ]
 
     def _build_attack_result(
         self,
         endpoint: Endpoint,
         payload: str,
         url: str,
+        mutation: Optional[str] = None,
         response: Optional[requests.Response] = None,
         error_message: Optional[str] = None,
         duration_ms: Optional[float] = None,
@@ -240,6 +248,7 @@ class BFLAAttacker:
             evidence_excerpt=evidence_excerpt,
             duration_ms=duration_ms,
             error_message=error_message,
+            extra_data={"mutation": mutation} if mutation else None,
         )
     
     def _is_admin_endpoint(self, path: str) -> bool:
@@ -275,7 +284,6 @@ class BFLAAttacker:
         if self._is_admin_endpoint(endpoint.path):
             try:
                 url = f"{self.target_url}{endpoint.path}"
-                payload = f"endpoint_access: {endpoint.path}"
                 baseline_response = session.request(
                     endpoint.method.value,
                     url,
@@ -283,27 +291,37 @@ class BFLAAttacker:
                     timeout=self.timeout
                 )
 
-                start_time = time.time()
-                attack_response = session.request(
-                    endpoint.method.value,
-                    url,
-                    headers=self._build_attack_headers(token),
-                    timeout=self.timeout
-                )
-                
-                duration_ms = (time.time() - start_time) * 1000
-                is_vulnerable = (
-                    attack_response.status_code in [200, 201]
-                    and self._is_sensitive_data(attack_response.text)
-                    and baseline_response is not None
-                    and baseline_response.status_code in [401, 403]
-                )
+                if baseline_response is None or baseline_response.status_code not in [401, 403]:
+                    return results
 
-                results.append(
-                    self._build_attack_result(
+                mutation_headers = self._build_mutation_headers(token)
+                last_result = None
+
+                for headers in mutation_headers:
+                    mutation_key = next(
+                        (key for key in headers if key not in {'User-Agent', 'Accept', 'Authorization'}),
+                        "unknown"
+                    )
+                    start_time = time.time()
+                    attack_response = session.request(
+                        endpoint.method.value,
+                        url,
+                        headers=headers,
+                        timeout=self.timeout
+                    )
+                    duration_ms = (time.time() - start_time) * 1000
+                    is_vulnerable = (
+                        attack_response.status_code in [200, 201]
+                        and self._is_sensitive_data(attack_response.text)
+                        and baseline_response is not None
+                        and baseline_response.status_code in [401, 403]
+                    )
+
+                    last_result = self._build_attack_result(
                         endpoint=endpoint,
-                        payload=payload,
+                        payload=f"endpoint_access: {endpoint.path}",
                         url=url,
+                        mutation=mutation_key,
                         response=attack_response,
                         duration_ms=duration_ms,
                         success=is_vulnerable,
@@ -312,7 +330,11 @@ class BFLAAttacker:
                             if is_vulnerable else None
                         ),
                     )
-                )
+                    if is_vulnerable:
+                        break
+
+                if last_result is not None and last_result.success:
+                    results.append(last_result)
                 
             except Exception as e:
                 results.append(
@@ -357,37 +379,49 @@ class BFLAAttacker:
                 timeout=self.timeout
             )
 
-            attack_headers = self._build_attack_headers(token)
+            if baseline_response is None or baseline_response.status_code not in [401, 403]:
+                return None
 
-            start_time = time.time()
-            attack_response = session.request(
-                endpoint.method.value,
-                url,
-                headers=attack_headers,
-                json=body if body else None,
-                timeout=self.timeout
-            )
-            duration_ms = (time.time() - start_time) * 1000
+            last_result = None
+            for headers in self._build_mutation_headers(token):
+                mutation_key = next(
+                    (key for key in headers if key not in {'User-Agent', 'Accept', 'Authorization'}),
+                    "unknown"
+                )
+                start_time = time.time()
+                attack_response = session.request(
+                    endpoint.method.value,
+                    url,
+                    headers=headers,
+                    json=body if body else None,
+                    timeout=self.timeout
+                )
+                duration_ms = (time.time() - start_time) * 1000
 
-            is_vulnerable = (
-                attack_response.status_code in [200, 201]
-                and self._is_sensitive_data(attack_response.text)
-                and baseline_response is not None
-                and baseline_response.status_code in [401, 403]
-            )
+                is_vulnerable = (
+                    attack_response.status_code in [200, 201]
+                    and self._is_sensitive_data(attack_response.text)
+                    and baseline_response is not None
+                    and baseline_response.status_code in [401, 403]
+                )
 
-            return self._build_attack_result(
-                endpoint=endpoint,
-                payload=f"endpoint_access: {endpoint.path}",
-                url=url,
-                response=attack_response,
-                duration_ms=duration_ms,
-                success=is_vulnerable,
-                error_message=(
-                    "Restricted function accessible to current role"
-                    if is_vulnerable else None
-                ),
-            )
+                last_result = self._build_attack_result(
+                    endpoint=endpoint,
+                    payload=f"endpoint_access: {endpoint.path}",
+                    url=url,
+                    mutation=mutation_key,
+                    response=attack_response,
+                    duration_ms=duration_ms,
+                    success=is_vulnerable,
+                    error_message=(
+                        "Restricted function accessible to current role"
+                        if is_vulnerable else None
+                    ),
+                )
+                if is_vulnerable:
+                    break
+
+            return last_result
             
         except Exception as e:
             return self._build_attack_result(
@@ -543,7 +577,7 @@ class BFLAAttacker:
         """Create a Vulnerability object from an attack result."""
         return Vulnerability(
             endpoint=endpoint,
-            attack_type=AttackType.BFLA,
+            attack_type=AttackType.AUTH_BYPASS,
             severity=Severity.HIGH,
             title=f"BFLA in {endpoint.full_path}",
             description=(
