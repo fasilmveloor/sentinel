@@ -20,7 +20,7 @@ from .attacks import (
     SSRFAttacker,
     XSSAttacker,
 )
-from .models import AttackResult, AttackType, Endpoint, ScanTask
+from .models import AttackResult, AttackType, Endpoint, ScanTask, Severity, Vulnerability
 from .scan_context import ScanContext
 from .tasks import TaskQueue
 
@@ -76,7 +76,11 @@ class SentinelOrchestrator:
             if self.context.has_seen(task.signature):
                 continue
 
-            attack_results, attacker = self._execute_task(task)
+            execution = self._execute_task(task)
+            if isinstance(execution, tuple):
+                attack_results, attacker = execution
+            else:
+                attack_results, attacker = execution, None
             self.context.mark_executed(task.signature)
             for result in attack_results:
                 self.context.update_from_result(result)
@@ -86,9 +90,11 @@ class SentinelOrchestrator:
                     and result.response_status is not None
                     and result.evidence_excerpt is not None
                 ):
-                    self.vulnerabilities.append(
-                        attacker.create_vulnerability(result, task.endpoint)
-                    )
+                    if attacker is not None and hasattr(attacker, "create_vulnerability"):
+                        vulnerability = attacker.create_vulnerability(result, task.endpoint)
+                    else:
+                        vulnerability = self._create_generic_vulnerability(result, task.endpoint)
+                    self.vulnerabilities.append(vulnerability)
             results.extend(attack_results)
             self.tasks_executed += 1
 
@@ -124,7 +130,8 @@ class SentinelOrchestrator:
             return attacker.attack(task.endpoint, auth_token=auth_token, parameters_to_test=parameters), attacker
 
         temp_attacker = IDORAttacker(self.target_url, self.timeout)
-        temp_attacker.session.headers.update(attacker.session.headers)
+        if hasattr(attacker, "session") and hasattr(temp_attacker, "session"):
+            temp_attacker.session.headers.update(attacker.session.headers)
         temp_attacker.ID_PATTERNS = self._build_candidate_patterns(candidate_id)
         return temp_attacker.attack(task.endpoint, auth_token=auth_token, parameters_to_test=parameters), temp_attacker
 
@@ -163,14 +170,16 @@ class SentinelOrchestrator:
                 parameters = self._get_id_parameters(endpoint)
                 if not parameters and "{id}" not in endpoint.path.lower():
                     continue
+                artifacts = {
+                    "candidate_id": discovered_id,
+                    "auth_token": next(iter(self.context.tokens), None),
+                }
+                artifacts = {key: value for key, value in artifacts.items() if value is not None}
                 task = ScanTask(
                     endpoint=endpoint,
                     attack_type=AttackType.IDOR,
                     parameters=parameters,
-                    artifacts={
-                        "candidate_id": discovered_id,
-                        "auth_token": next(iter(self.context.tokens), None),
-                    },
+                    artifacts=artifacts,
                     reason="discovered IDs available",
                 )
                 self.queue.push(task)
@@ -208,3 +217,25 @@ class SentinelOrchestrator:
             self._attackers[attack_type] = attacker_class(self.target_url, self.timeout)
 
         return self._attackers[attack_type]
+
+    def _create_generic_vulnerability(self, result: AttackResult, endpoint: Endpoint) -> Vulnerability:
+        """Create a fallback vulnerability when no attacker object is available."""
+        return Vulnerability(
+            endpoint=endpoint,
+            attack_type=result.attack_type,
+            severity=Severity.HIGH,
+            title=f"{result.attack_type.value} detected in {endpoint.full_path}",
+            description=(
+                "A proof-bearing attack result was produced, but no attacker-specific "
+                "vulnerability builder was available."
+            ),
+            payload=result.payload or "",
+            proof_of_concept=(
+                f"Request: {result.request_method} {result.request_url}\n"
+                f"Payload: {result.payload}\n"
+                f"Response Status: {result.response_status}\n"
+                f"Evidence: {result.evidence_excerpt}"
+            ),
+            recommendation="Review the affected endpoint and add explicit authorization and input validation controls.",
+            response_evidence=result.evidence_excerpt or result.response_body,
+        )
