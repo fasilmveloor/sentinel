@@ -551,7 +551,7 @@ class BrokenAuthAttacker:
                         if 'token' in data or 'authenticated' in str(data).lower():
                             return AttackResult(
                                 endpoint=endpoint,
-                                attack_type=AttackType.AUTH_BYPASS,
+                                attack_type=AttackType.BROKEN_AUTH,
                                 success=True,
                                 payload=f"{username}:{password}",
                                 response_status=response.status_code,
@@ -852,7 +852,7 @@ class BrokenAuthAttacker:
         """Create a Vulnerability object from an attack result."""
         return Vulnerability(
             endpoint=endpoint,
-            attack_type=AttackType.BROKEN_AUTH,
+            attack_type=AttackType.AUTH_BYPASS,
             severity=Severity.HIGH,
             title=f"Broken Authentication in {endpoint.full_path}",
             description=(

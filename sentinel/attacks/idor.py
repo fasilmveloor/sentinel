@@ -295,7 +295,9 @@ class IDORAttacker:
     
     def _is_idor_vulnerable(self, response: requests.Response) -> bool:
         """Check if response indicates IDOR vulnerability."""
-        return response.status_code == 200 and self._contains_sensitive_data(response.text)
+        return response.status_code in [200, 201] and (
+            response.status_code == 201 or self._contains_sensitive_data(response.text)
+        )
 
     def _contains_sensitive_data(self, response_text: str) -> bool:
         """Check whether the response exposes user-related sensitive data."""
