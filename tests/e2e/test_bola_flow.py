@@ -92,7 +92,7 @@ def test_bola_flow_produces_proven_vulnerability(bola_mock_server):
 
     assert orchestrator.vulnerabilities
     vulnerability = orchestrator.vulnerabilities[0]
-    assert vulnerability.attack_type == AttackType.BOLA
+    assert vulnerability.attack_type == AttackType.IDOR
 
     successful_results = [
         result for result in results

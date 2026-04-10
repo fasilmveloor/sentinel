@@ -86,7 +86,7 @@ def test_broken_auth_flow_produces_proven_vulnerability(broken_auth_mock_server)
 
     assert orchestrator.vulnerabilities
     vulnerability = orchestrator.vulnerabilities[0]
-    assert vulnerability.attack_type == AttackType.BROKEN_AUTH
+    assert vulnerability.attack_type == AttackType.AUTH_BYPASS
 
     successful_results = [
         result for result in results

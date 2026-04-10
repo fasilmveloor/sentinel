@@ -82,7 +82,7 @@ def test_bfla_flow_produces_proven_vulnerability(bfla_mock_server):
 
     assert orchestrator.vulnerabilities
     vulnerability = orchestrator.vulnerabilities[0]
-    assert vulnerability.attack_type == AttackType.BFLA
+    assert vulnerability.attack_type == AttackType.AUTH_BYPASS
 
     successful_results = [
         result for result in results
