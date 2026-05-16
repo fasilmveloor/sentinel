@@ -19,93 +19,84 @@ Features:
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 import click
 from rich.console import Console
-from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.panel import Panel
-from rich import print as rprint
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
+from rich.table import Table
 
 from . import __version__
-from .models import (
-    AttackType,
-    ScanConfig,
-    ScanResult,
-    Endpoint,
-    Vulnerability,
-    Severity,
-    LLMProvider,
-    ReportFormat,
-    ScanTask,
-)
-from .parser import SwaggerParser, get_sample_endpoint_values, SwaggerParseError
-from .agent import SentinelAgent, AIAgentError
+from .agent import AIAgentError, SentinelAgent
 from .attacks import (
-    SQLInjectionAttacker,
     AuthBypassAttacker,
-    IDORAttacker,
-    XSSAttacker,
-    SSRFAttacker,
-    JWTAttacker,
-    CommandInjectionAttacker,
-    RateLimitAttacker,
+    BFLAAttacker,
     # v1.0.0 Enhanced Modules
     BOLAAttacker,
-    UserCredentials,
-    ExcessiveDataExposureAttacker,
-    MassAssignmentAttacker,
-    BFLAAttacker,
-    UserRole,
-    NoSQLInjectionAttacker,
     BrokenAuthAttacker,
-    AuthContext
+    CommandInjectionAttacker,
+    ExcessiveDataExposureAttacker,
+    IDORAttacker,
+    JWTAttacker,
+    MassAssignmentAttacker,
+    NoSQLInjectionAttacker,
+    RateLimitAttacker,
+    SQLInjectionAttacker,
+    SSRFAttacker,
+    XSSAttacker,
 )
-from .reporter import Reporter
-from .html_reporter import HTMLReporter
-from .json_reporter import JSONReporter, SARIFReporter, JUnitReporter
-
-# v3 Autonomous imports
-from .orchestrator import SentinelOrchestrator
-from .passive import PassiveScanner, create_passive_scanner
-from .chat import SentinelChat, run_interactive_session
 
 # v3.0 Enterprise imports
 from .auth import (
-    AuthHandler, AuthConfig, AuthType, AuthManager,
-    create_bearer_auth, create_basic_auth, create_api_key_auth
-)
-from .proxy import SentinelProxy, ProxyConfig, create_proxy
-from .plugin import (
-    PluginManager, PluginType, get_plugin_manager,
-    create_attack_plugin_template, create_passive_plugin_template
-)
-
-# v1.0.0 Postman Collection imports
-from .postman import (
-    PostmanParser,
-    PostmanGenerator,
-    PostmanParseError,
-    parse_postman,
-    generate_postman_collection,
-    convert_openapi_to_postman
+    AuthConfig,
+    AuthHandler,
+    AuthType,
+    create_api_key_auth,
+    create_basic_auth,
+    create_bearer_auth,
 )
 
 # v1.0.0 Benchmark Framework imports
 from .benchmarks import (
-    BenchmarkTarget,
-    BenchmarkCategory,
-    BenchmarkRunner,
     BenchmarkResult,
-    BenchmarkReport,
+    BenchmarkRunner,
+    BenchmarkTarget,
     GroundTruthDatabase,
-    run_crapi_benchmark,
-    run_juice_shop_benchmark,
-    run_owasp_benchmark,
-    run_all_benchmarks
+)
+from .chat import run_interactive_session
+from .html_reporter import HTMLReporter
+from .json_reporter import JSONReporter, JUnitReporter, SARIFReporter
+from .models import (
+    AttackType,
+    Endpoint,
+    LLMProvider,
+    ReportFormat,
+    ScanConfig,
+    ScanResult,
+    ScanTask,
+    Severity,
+    Vulnerability,
 )
 
+# v3 Autonomous imports
+from .orchestrator import SentinelOrchestrator
+from .parser import SwaggerParseError, SwaggerParser
+from .passive import create_passive_scanner
+from .plugin import (
+    create_attack_plugin_template,
+    create_passive_plugin_template,
+    get_plugin_manager,
+)
+
+# v1.0.0 Postman Collection imports
+from .postman import (
+    PostmanGenerator,
+    PostmanParseError,
+    PostmanParser,
+    convert_openapi_to_postman,
+)
+from .proxy import ProxyConfig, create_proxy
+from .reporter import Reporter
 
 console = Console()
 
@@ -155,7 +146,7 @@ def print_summary(result: ScanResult):
     table = Table(title="📊 Scan Summary", show_header=True, header_style="bold magenta")
     table.add_column("Metric", style="cyan")
     table.add_column("Value", style="green")
-    
+
     table.add_row("Endpoints Tested", str(len(result.endpoints_tested)))
     table.add_row("Total Requests", str(result.total_requests))
     table.add_row("Vulnerabilities Found", str(result.vulnerability_count))
@@ -164,7 +155,7 @@ def print_summary(result: ScanResult):
     table.add_row("Medium", str(result.medium_count), style="yellow" if result.medium_count > 0 else None)
     table.add_row("Low", str(result.low_count), style="blue" if result.low_count > 0 else None)
     table.add_row("Duration", f"{result.duration_seconds:.2f}s")
-    
+
     console.print(table)
 
 
@@ -173,9 +164,9 @@ def print_vulnerabilities(vulnerabilities: list[Vulnerability]):
     if not vulnerabilities:
         console.print("\n✅ [green]No vulnerabilities found![/green]\n")
         return
-    
+
     console.print(f"\n⚠️  [bold red]Found {len(vulnerabilities)} vulnerabilities:[/bold red]\n")
-    
+
     for i, vuln in enumerate(vulnerabilities, 1):
         severity_colors = {
             Severity.CRITICAL: "red",
@@ -184,7 +175,7 @@ def print_vulnerabilities(vulnerabilities: list[Vulnerability]):
             Severity.LOW: "blue"
         }
         color = severity_colors.get(vuln.severity, "white")
-        
+
         panel = Panel(
             f"[bold]{vuln.description[:200]}...[/bold]\n\n"
             f"Endpoint: [cyan]{vuln.endpoint.full_path}[/cyan]\n"
@@ -199,8 +190,8 @@ def print_vulnerabilities(vulnerabilities: list[Vulnerability]):
 def _seed_autonomous_tasks(
     orchestrator: SentinelOrchestrator,
     endpoints: list[Endpoint],
-    agent: Optional[SentinelAgent],
-    auth_token: Optional[str],
+    agent: SentinelAgent | None,
+    auth_token: str | None,
 ) -> list[dict]:
     """Seed the orchestrator queue from endpoint analysis decisions."""
     ai_decisions: list[dict] = []
@@ -249,7 +240,7 @@ def _build_scan_result(
     vulnerabilities: list[Vulnerability],
     ai_decisions: list[dict],
     start_time: float,
-    auth_token: Optional[str] = None,
+    auth_token: str | None = None,
 ) -> ScanResult:
     """Convert orchestrator output into the existing ScanResult model."""
     config = ScanConfig(
@@ -358,18 +349,18 @@ def scan(
     verbose: bool,
     no_ai: bool,
     max_endpoints: int,
-    auth_token: Optional[str]
+    auth_token: str | None
 ):
     """
     Run a security scan against the target API.
-    
+
     Example:
         sentinel scan --swagger api.yaml --target http://localhost:8000
     """
     print_banner()
-    
+
     start_time = time.time()
-    
+
     # Map LLM provider
     llm_providers = {
         'gemini': LLMProvider.GEMINI,
@@ -377,7 +368,7 @@ def scan(
         'claude': LLMProvider.CLAUDE,
         'local': LLMProvider.LOCAL
     }
-    
+
     # Map report format
     report_formats = {
         'markdown': ReportFormat.MARKDOWN,
@@ -386,7 +377,7 @@ def scan(
         'sarif': ReportFormat.SARIF,
         'junit': ReportFormat.JUNIT
     }
-    
+
     # Create scan configuration
     config = ScanConfig(
         target_url=target,
@@ -400,33 +391,33 @@ def scan(
         llm_provider=llm_providers[llm],
         auth_token=auth_token
     )
-    
+
     # Initialize result
     result = ScanResult(config=config)
-    
+
     try:
         # Step 1: Parse Swagger specification
         console.print("\n📋 [bold]Parsing Swagger specification...[/bold]")
-        
+
         parser = SwaggerParser(swagger)
         endpoints = parser.parse()
-        
+
         if not endpoints:
             console.print("[red]No endpoints found in specification.[/red]")
             sys.exit(1)
-        
+
         # Limit endpoints
         if len(endpoints) > max_endpoints:
             console.print(f"[yellow]Limiting to {max_endpoints} endpoints (found {len(endpoints)})[/yellow]")
             endpoints = endpoints[:max_endpoints]
-        
+
         result.endpoints_tested = endpoints
         console.print(f"[green]Found {len(endpoints)} endpoints to test[/green]")
-        
+
         if verbose:
             for ep in endpoints:
                 console.print(f"  • {ep.method.value} {ep.path}")
-        
+
         # Step 2: Initialize AI Agent (if enabled)
         agent = None
         if not no_ai:
@@ -437,10 +428,10 @@ def scan(
             except AIAgentError as e:
                 console.print(f"[yellow]AI agent unavailable: {e}[/yellow]")
                 console.print("[yellow]Falling back to rule-based decisions[/yellow]")
-        
+
         # Step 3: Initialize attackers
         console.print("\n⚔️  [bold]Initializing attack modules...[/bold]")
-        
+
         attackers = {}
         attack_modules = [
             # Core Attack Modules
@@ -460,17 +451,17 @@ def scan(
             ('NoSQL Injection', AttackType.NOSQL_INJECTION, lambda: NoSQLInjectionAttacker(target, timeout)),
             ('Broken Auth', AttackType.BROKEN_AUTH, lambda: BrokenAuthAttacker(target, timeout)),
         ]
-        
+
         for name, attack_type, attacker_factory in attack_modules:
             if attack_type in config.attack_types:
                 attackers[attack_type] = attacker_factory()
                 console.print(f"  ✓ {name}")
-        
+
         console.print("[green]Attack modules ready[/green]")
-        
+
         # Step 4: Run attacks
         console.print("\n🚀 [bold]Starting security scan...[/bold]\n")
-        
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -479,16 +470,16 @@ def scan(
             console=console
         ) as progress:
             main_task = progress.add_task(
-                "[cyan]Scanning endpoints...", 
+                "[cyan]Scanning endpoints...",
                 total=len(endpoints)
             )
-            
+
             for endpoint in endpoints:
                 progress.update(
-                    main_task, 
+                    main_task,
                     description=f"[cyan]Testing {endpoint.method.value} {endpoint.path}[/cyan]"
                 )
-                
+
                 # Get AI recommendation or use defaults
                 if agent:
                     decision = agent.analyze_endpoint(endpoint)
@@ -502,17 +493,17 @@ def scan(
                 else:
                     attack_types = config.attack_types
                     params_to_test = None
-                
+
                 # Run each attack type
                 for attack_type in attack_types:
                     if attack_type not in config.attack_types:
                         continue
-                    
+
                     if attack_type not in attackers:
                         continue
-                    
+
                     attacker = attackers[attack_type]
-                    
+
                     # Run attack
                     if attack_type == AttackType.JWT:
                         attack_results = attacker.attack(endpoint, auth_token)
@@ -522,10 +513,10 @@ def scan(
                         attack_results = attacker.attack(endpoint, auth_token)
                     else:
                         attack_results = attacker.attack(endpoint, params_to_test)
-                    
+
                     result.attack_results.extend(attack_results)
                     result.total_requests += len(attack_results)
-                    
+
                     # Check for vulnerabilities
                     for ar in attack_results:
                         if ar.success:
@@ -535,17 +526,17 @@ def scan(
                             except Exception as e:
                                 if verbose:
                                     console.print(f"[yellow]Warning: Could not create vulnerability: {e}[/yellow]")
-                
+
                 progress.advance(main_task)
-                
+
                 # Small delay between endpoints
                 time.sleep(config.rate_limit_delay)
-        
+
         # Step 5: Generate report
         console.print(f"\n📝 [bold]Generating {format} report...[/bold]")
-        
+
         result.duration_seconds = time.time() - start_time
-        
+
         # Generate appropriate report format
         if format == 'html':
             reporter = HTMLReporter(output)
@@ -557,15 +548,15 @@ def scan(
             reporter = JUnitReporter(output)
         else:
             reporter = Reporter(output)
-        
+
         report_path = reporter.save(result)
-        
+
         console.print(f"[green]Report saved to: {report_path}[/green]")
-        
+
         # Step 6: Print summary
         print_summary(result)
         print_vulnerabilities(result.vulnerabilities)
-        
+
         # Exit with appropriate code
         if result.critical_count > 0:
             console.print("\n[bold red]❌ Critical vulnerabilities found! Immediate action required.[/bold red]")
@@ -576,13 +567,13 @@ def scan(
         else:
             console.print("\n[bold green]✅ Scan complete. No critical or high severity issues found.[/bold green]")
             sys.exit(0)
-    
+
     except KeyboardInterrupt:
         console.print("\n[yellow]Scan interrupted by user.[/yellow]")
         sys.exit(130)
     except SwaggerParseError as e:
         # User-facing parse errors - show clean message without traceback
-        console.print(f"\n[red]❌ Parse Error:[/red]")
+        console.print("\n[red]❌ Parse Error:[/red]")
         for line in str(e).split('\n'):
             console.print(f"   {line}")
         sys.exit(1)
@@ -629,49 +620,49 @@ def autonomous(
     swagger: str,
     target: str,
     llm: str,
-    auth_token: Optional[str],
+    auth_token: str | None,
     max_concurrent: int,
     output: str
 ):
     """
     Run an autonomous AI-powered scan.
-    
+
     The AI agent will:
     - Plan the optimal attack strategy
     - Execute attacks in priority order
     - Analyze results and discover attack chains
     - Generate comprehensive report
-    
+
     Example:
         sentinel autonomous -s api.yaml -t https://api.example.com
     """
     print_banner_v25()
-    
+
     llm_providers = {
         'gemini': LLMProvider.GEMINI,
         'openai': LLMProvider.OPENAI,
         'claude': LLMProvider.CLAUDE,
         'local': LLMProvider.LOCAL
     }
-    
+
     console.print("\n🧠 [bold]Initializing Autonomous Scanner...[/bold]")
     console.print(f"   LLM Provider: {llm}")
     console.print(f"   Target: {target}")
     console.print(f"   Spec: {swagger}")
-    
+
     try:
         start_time = time.time()
 
         # Parse endpoints
         parser = SwaggerParser(swagger)
         endpoints = parser.parse()
-        
+
         if not endpoints:
             console.print("[red]No endpoints found in specification.[/red]")
             sys.exit(1)
-        
+
         console.print(f"[green]Found {len(endpoints)} endpoints[/green]")
-        
+
         # Initialize planner
         agent = None
         try:
@@ -706,23 +697,23 @@ def autonomous(
             start_time=start_time,
             auth_token=auth_token,
         )
-        
+
         # Display results
         console.print("\n" + "="*60)
         console.print("📊 [bold]Autonomous Scan Complete[/bold]")
         console.print("="*60 + "\n")
-        
+
         # Summary
         summary_table = Table(title="Scan Summary")
         summary_table.add_column("Metric", style="cyan")
         summary_table.add_column("Value", style="green")
-        
+
         summary_table.add_row("Endpoints Scanned", str(len(result.endpoints_tested)))
         summary_table.add_row("Total Requests", str(result.total_requests))
         summary_table.add_row("Findings", str(result.vulnerability_count))
         summary_table.add_row("Attack Chains", "0")
         summary_table.add_row("Duration", f"{result.duration_seconds:.2f}s")
-        
+
         console.print(summary_table)
 
         severity_table = Table(title="Findings by Severity")
@@ -733,18 +724,18 @@ def autonomous(
         severity_table.add_row("MEDIUM", str(result.medium_count))
         severity_table.add_row("LOW", str(result.low_count))
         console.print(severity_table)
-        
+
         # Generate report
         console.print(f"\n📝 [bold]Generating report: {output}[/bold]")
 
         reporter = Reporter(output)
         report_path = reporter.save(result)
         console.print(f"[green]Report saved to: {report_path}[/green]")
-        
+
         # Exit code
         critical = result.critical_count
         high = result.high_count
-        
+
         if critical > 0:
             console.print("\n[bold red]❌ Critical vulnerabilities found![/bold red]")
             sys.exit(2)
@@ -754,9 +745,9 @@ def autonomous(
         else:
             console.print("\n[bold green]✅ No critical or high severity issues found.[/bold green]")
             sys.exit(0)
-            
+
     except SwaggerParseError as e:
-        console.print(f"\n[red]❌ Parse Error:[/red]")
+        console.print("\n[red]❌ Parse Error:[/red]")
         for line in str(e).split('\n'):
             console.print(f"   {line}")
         sys.exit(1)
@@ -769,13 +760,13 @@ def autonomous(
 def chat():
     """
     Start an interactive chat session with Sentinel AI.
-    
+
     Use natural language to:
     - Scan APIs
     - Analyze endpoints
     - Get security recommendations
     - Generate reports
-    
+
     Example:
         sentinel chat
         > Scan https://api.example.com
@@ -785,7 +776,7 @@ def chat():
     print_banner_v25()
     console.print("\n💬 [bold]Starting Interactive Chat Mode...[/bold]")
     console.print("[dim]Type 'exit' to quit, 'help' for commands[/dim]\n")
-    
+
     try:
         run_interactive_session()
     except Exception as e:
@@ -805,10 +796,10 @@ def chat():
     '--output', '-o',
     help='Output file for passive scan report'
 )
-def passive(url: str, output: Optional[str]):
+def passive(url: str, output: str | None):
     """
     Run a passive security scan on a URL.
-    
+
     Analyzes HTTP responses without sending attack payloads.
     Checks for:
     - Missing security headers
@@ -816,21 +807,21 @@ def passive(url: str, output: Optional[str]):
     - Server version disclosure
     - CORS misconfigurations
     - Cookie security issues
-    
+
     Example:
         sentinel passive -u https://api.example.com
     """
     import requests
-    
+
     print_banner()
-    console.print(f"\n🔍 [bold]Passive Security Scan[/bold]")
+    console.print("\n🔍 [bold]Passive Security Scan[/bold]")
     console.print(f"   Target: {url}\n")
-    
+
     try:
         # Make request
         console.print("📡 [bold]Fetching URL...[/bold]")
         response = requests.get(url, timeout=10)
-        
+
         # Run passive scanner
         scanner = create_passive_scanner()
         findings = scanner.analyze_response(
@@ -841,23 +832,23 @@ def passive(url: str, output: Optional[str]):
             response_body=response.text,
             status_code=response.status_code
         )
-        
+
         # Display results
         console.print(f"\n[bold]Analysis Complete: {len(findings)} findings[/bold]\n")
-        
+
         if not findings:
             console.print("[green]✅ No security issues detected![/green]")
             return
-        
+
         # Group by severity
         findings_table = Table(title="Passive Findings")
         findings_table.add_column("Severity", style="cyan")
         findings_table.add_column("Finding", style="white")
         findings_table.add_column("Description", style="yellow")
-        
+
         severity_order = [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW]
         sorted_findings = sorted(findings, key=lambda f: severity_order.index(f.severity) if f.severity in severity_order else 99)
-        
+
         for finding in sorted_findings:
             sev_color = {
                 Severity.CRITICAL: "red",
@@ -865,15 +856,15 @@ def passive(url: str, output: Optional[str]):
                 Severity.MEDIUM: "yellow",
                 Severity.LOW: "blue"
             }.get(finding.severity, "white")
-            
+
             findings_table.add_row(
                 f"[{sev_color}]{finding.severity.value.upper()}[/{sev_color}]",
                 finding.title,
                 finding.description[:60] + "..." if len(finding.description) > 60 else finding.description
             )
-        
+
         console.print(findings_table)
-        
+
         # Detailed findings
         console.print("\n[bold]Details:[/bold]\n")
         for finding in sorted_findings[:10]:  # Show top 10
@@ -883,7 +874,7 @@ def passive(url: str, output: Optional[str]):
                 Severity.MEDIUM: "yellow",
                 Severity.LOW: "blue"
             }.get(finding.severity, "white")
-            
+
             panel = Panel(
                 f"{finding.description}\n\n"
                 f"[bold]Evidence:[/bold] {finding.evidence}\n"
@@ -893,7 +884,7 @@ def passive(url: str, output: Optional[str]):
                 border_style=sev_color
             )
             console.print(panel)
-        
+
         # Save report if requested
         if output:
             report_content = f"""# Passive Security Scan Report
@@ -911,11 +902,11 @@ def passive(url: str, output: Optional[str]):
                 report_content += f"- **Description**: {f.description}\n"
                 report_content += f"- **Evidence**: {f.evidence}\n"
                 report_content += f"- **Remediation**: {f.remediation}\n\n"
-            
+
             with open(output, 'w') as f:
                 f.write(report_content)
             console.print(f"\n[green]Report saved to: {output}[/green]")
-            
+
     except Exception as e:
         console.print(f"\n[red]Error: {e}[/red]")
         sys.exit(1)
@@ -929,7 +920,7 @@ def list_attacks():
     table.add_column("Description", style="white")
     table.add_column("OWASP", style="yellow")
     table.add_column("CWE", style="magenta")
-    
+
     attacks_info = [
         # Core Attack Types
         ("sql_injection", "SQL injection testing", "A03:2021", "CWE-89"),
@@ -948,7 +939,7 @@ def list_attacks():
         ("nosql_injection", "NoSQL injection testing", "A03:2021", "CWE-943"),
         ("broken_auth", "Broken Authentication flows", "API7:2023", "CWE-287"),
     ]
-    
+
     console.print("\n[bold cyan]v1.0.0 Enhanced Detection:[/bold cyan]")
     console.print("  • BOLA/IDOR with multi-user testing")
     console.print("  • Excessive Data Exposure detection")
@@ -956,10 +947,10 @@ def list_attacks():
     console.print("  • BFLA (Broken Function Level Authorization)")
     console.print("  • NoSQL Injection testing")
     console.print("  • Broken Authentication flow testing\n")
-    
+
     for attack, desc, owasp, cwe in attacks_info:
         table.add_row(attack, desc, owasp, cwe)
-    
+
     console.print(table)
 
 
@@ -967,28 +958,28 @@ def list_attacks():
 @click.argument('swagger', type=click.Path(exists=True))
 def inspect(swagger: str):
     """Inspect an OpenAPI/Swagger specification.
-    
+
     Shows all endpoints and their details without running attacks.
     """
     print_banner()
-    
+
     try:
         parser = SwaggerParser(swagger)
         endpoints = parser.parse()
         info = parser.get_info()
-        
+
         # Print API info
         console.print(f"\n[bold]API: {info.get('title', 'Unknown')}[/bold]")
         console.print(f"Version: {info.get('version', 'Unknown')}")
         console.print(f"Description: {info.get('description', 'N/A')}\n")
-        
+
         # Print endpoints table
         table = Table(title=f"Endpoints ({len(endpoints)} found)")
         table.add_column("Method", style="cyan")
         table.add_column("Path", style="green")
         table.add_column("Auth", style="yellow")
         table.add_column("Parameters", style="magenta")
-        
+
         for endpoint in endpoints:
             auth = "🔒" if endpoint.requires_auth else "🔓"
             params = ", ".join([p.name for p in endpoint.parameters]) or "-"
@@ -998,11 +989,11 @@ def inspect(swagger: str):
                 auth,
                 params
             )
-        
+
         console.print(table)
-        
+
     except SwaggerParseError as e:
-        console.print(f"\n[red]❌ Parse Error:[/red]")
+        console.print("\n[red]❌ Parse Error:[/red]")
         for line in str(e).split('\n'):
             console.print(f"   {line}")
         sys.exit(1)
@@ -1049,27 +1040,27 @@ def version():
     is_flag=True,
     help='Extract OpenAPI spec from traffic'
 )
-def proxy(host: str, port: int, output: Optional[str], extract_spec: bool):
+def proxy(host: str, port: int, output: str | None, extract_spec: bool):
     """
     Start an intercepting proxy for traffic analysis.
-    
+
     The proxy will intercept HTTP traffic and perform passive security analysis.
     Configure your browser or application to use this proxy.
-    
+
     Example:
         sentinel proxy --port 8080
     """
     print_banner_v25()
-    console.print(f"\n🌐 [bold]Starting Proxy Server[/bold]")
+    console.print("\n🌐 [bold]Starting Proxy Server[/bold]")
     console.print(f"   Host: {host}")
     console.print(f" Port: {port}\n")
-    
+
     console.print("[yellow]Configure your client to use this proxy:[/yellow]")
     console.print(f"  HTTP Proxy: {host}:{port}")
     console.print(f"  HTTPS Proxy: {host}:{port}\n")
-    
+
     console.print("[bold]Press Ctrl+C to stop the proxy[/bold]\n")
-    
+
     try:
         # Create and start proxy
         config = ProxyConfig(
@@ -1078,16 +1069,16 @@ def proxy(host: str, port: int, output: Optional[str], extract_spec: bool):
             passive_scan=True,
             detect_api=True
         )
-        
+
         proxy_server = create_proxy(
             host=config.host,
             port=config.port,
             passive_scan=config.passive_scan
         )
-        
+
         # Start in non-blocking mode first to show stats
         proxy_server.start(blocking=False)
-        
+
         # Keep running and show periodic stats
         import time
         while proxy_server.state.value == "running":
@@ -1095,10 +1086,10 @@ def proxy(host: str, port: int, output: Optional[str], extract_spec: bool):
             stats = proxy_server.get_stats()
             console.print(f"[dim]Traffic: {stats['total_flows']} flows, "
                          f"{stats['unique_endpoints']} endpoints[/dim]")
-            
+
     except KeyboardInterrupt:
         console.print("\n[yellow]Stopping proxy...[/yellow]")
-        
+
         if extract_spec and proxy_server:
             spec = proxy_server.extract_openapi_spec()
             spec_file = output or "extracted_api.json"
@@ -1106,7 +1097,7 @@ def proxy(host: str, port: int, output: Optional[str], extract_spec: bool):
             with open(spec_file, 'w') as f:
                 json.dump(spec, f, indent=2)
             console.print(f"[green]OpenAPI spec saved to: {spec_file}[/green]")
-        
+
         if output and proxy_server:
             flows = proxy_server.get_flows()
             import json
@@ -1117,18 +1108,18 @@ def proxy(host: str, port: int, output: Optional[str], extract_spec: bool):
                     "method": flow.request.method,
                     "url": flow.request.url,
                     "status": flow.response.status_code if flow.response else None,
-                    "findings": len(flow.request.passive_findings) + 
+                    "findings": len(flow.request.passive_findings) +
                                (len(flow.response.passive_findings) if flow.response else 0)
                 })
             with open(output, 'w') as f:
                 json.dump(traffic_data, f, indent=2)
             console.print(f"[green]Traffic saved to: {output}[/green]")
-        
+
         if proxy_server:
             proxy_server.stop()
-        
+
         console.print("[green]Proxy stopped.[/green]")
-        
+
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         sys.exit(1)
@@ -1146,21 +1137,21 @@ def plugin():
 def list():
     """List all registered plugins."""
     console.print("\n[bold]🔌 Registered Plugins[/bold]\n")
-    
+
     manager = get_plugin_manager()
     plugins = manager.list_plugins()
-    
+
     if not plugins:
         console.print("[yellow]No plugins registered.[/yellow]")
         return
-    
+
     table = Table()
     table.add_column("Name", style="cyan")
     table.add_column("Version", style="green")
     table.add_column("Type", style="yellow")
     table.add_column("Enabled", style="magenta")
     table.add_column("Description", style="white")
-    
+
     for p in plugins:
         enabled = "✅" if p["enabled"] else "❌"
         table.add_row(
@@ -1170,7 +1161,7 @@ def list():
             enabled,
             p["description"][:40] + "..." if len(p["description"]) > 40 else p["description"]
         )
-    
+
     console.print(table)
 
 
@@ -1179,10 +1170,10 @@ def list():
 def load(path: str):
     """Load a plugin from a file path."""
     console.print(f"\n[bold]Loading plugin: {path}[/bold]")
-    
+
     manager = get_plugin_manager()
     plugin = manager.load_plugin(path)
-    
+
     if plugin:
         console.print(f"[green]✅ Plugin loaded: {plugin.INFO.name}[/green]")
     else:
@@ -1210,15 +1201,15 @@ def load(path: str):
 def create(name: str, type: str, output: str):
     """Create a new plugin template."""
     console.print(f"\n[bold]Creating {type} plugin: {name}[/bold]")
-    
+
     try:
         if type == 'attack':
             path = create_attack_plugin_template(name, output)
         else:
             path = create_passive_plugin_template(name, output)
-        
+
         console.print(f"[green]✅ Plugin template created: {path}[/green]")
-        
+
     except Exception as e:
         console.print(f"[red]❌ Error creating plugin: {e}[/red]")
         sys.exit(1)
@@ -1290,54 +1281,54 @@ def disable(name: str):
 )
 def auth(
     type: str,
-    token: Optional[str],
-    username: Optional[str],
-    password: Optional[str],
-    api_key: Optional[str],
+    token: str | None,
+    username: str | None,
+    password: str | None,
+    api_key: str | None,
     header_name: str,
-    token_url: Optional[str],
-    client_id: Optional[str],
-    client_secret: Optional[str],
-    test_url: Optional[str]
+    token_url: str | None,
+    client_id: str | None,
+    client_secret: str | None,
+    test_url: str | None
 ):
     """
     Test and manage authentication.
-    
+
     Configure authentication for API security testing.
-    
+
     Example:
         sentinel auth --type bearer --token "your_token" --test-url https://api.example.com
     """
-    console.print(f"\n🔐 [bold]Authentication Configuration[/bold]\n")
-    
+    console.print("\n🔐 [bold]Authentication Configuration[/bold]\n")
+
     try:
         handler = None
-        
+
         if type == 'bearer':
             if not token:
                 console.print("[red]Error: --token required for bearer auth[/red]")
                 sys.exit(1)
             handler = create_bearer_auth(token)
-            console.print(f"  Type: Bearer Token")
+            console.print("  Type: Bearer Token")
             console.print(f"  Token: {token[:20]}...")
-            
+
         elif type == 'basic':
             if not username or not password:
                 console.print("[red]Error: --username and --password required for basic auth[/red]")
                 sys.exit(1)
             handler = create_basic_auth(username, password)
-            console.print(f"  Type: Basic Authentication")
+            console.print("  Type: Basic Authentication")
             console.print(f"  Username: {username}")
-            
+
         elif type == 'api_key':
             if not api_key:
                 console.print("[red]Error: --api-key required for api_key auth[/red]")
                 sys.exit(1)
             handler = create_api_key_auth(api_key, header_name)
-            console.print(f"  Type: API Key")
+            console.print("  Type: API Key")
             console.print(f"  Header: {header_name}")
             console.print(f"  Key: {api_key[:20]}...")
-            
+
         elif type == 'oauth2':
             if not all([token_url, client_id, client_secret]):
                 console.print("[red]Error: --token-url, --client-id, --client-secret required for oauth2[/red]")
@@ -1349,30 +1340,30 @@ def auth(
                 oauth_client_secret=client_secret
             )
             handler = AuthHandler(config)
-            console.print(f"  Type: OAuth2 Client Credentials")
+            console.print("  Type: OAuth2 Client Credentials")
             console.print(f"  Token URL: {token_url}")
             console.print(f"  Client ID: {client_id}")
-        
+
         # Test authentication if URL provided
         if test_url and handler:
-            console.print(f"\n📡 [bold]Testing authentication...[/bold]")
-            
+            console.print("\n📡 [bold]Testing authentication...[/bold]")
+
             import requests
             headers = handler.authenticate()
             response = requests.get(test_url, headers=headers, timeout=10)
-            
+
             if response.status_code == 200:
-                console.print(f"[green]✅ Authentication successful![/green]")
+                console.print("[green]✅ Authentication successful![/green]")
                 console.print(f"   Status: {response.status_code}")
             elif response.status_code == 401:
-                console.print(f"[red]❌ Authentication failed![/red]")
+                console.print("[red]❌ Authentication failed![/red]")
                 console.print(f"   Status: {response.status_code} - Unauthorized")
             else:
-                console.print(f"[yellow]⚠️ Unexpected response[/yellow]")
+                console.print("[yellow]⚠️ Unexpected response[/yellow]")
                 console.print(f"   Status: {response.status_code}")
-        
+
         console.print()
-        
+
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         sys.exit(1)
@@ -1401,27 +1392,27 @@ def postman():
     is_flag=True,
     help='Run security scan after importing'
 )
-def import_collection(collection: str, target: Optional[str], output: Optional[str], scan: bool):
+def import_collection(collection: str, target: str | None, output: str | None, scan: bool):
     """
     Import a Postman collection for security testing.
-    
+
     Parses a Postman Collection v2.0/v2.1 file and extracts endpoints
     for security analysis.
-    
+
     Example:
         sentinel postman import my_collection.json
         sentinel postman import my_collection.json --target https://api.example.com --scan
     """
     print_banner()
-    console.print(f"\n📦 [bold]Importing Postman Collection[/bold]")
+    console.print("\n📦 [bold]Importing Postman Collection[/bold]")
     console.print(f"   File: {collection}\n")
-    
+
     try:
         # Parse the collection
         parser = PostmanParser(collection)
         endpoints = parser.parse()
         full_info = parser.parse_full()
-        
+
         # Display collection info
         info = full_info['info']
         console.print(f"\n[bold]Collection: {info['name']}[/bold]")
@@ -1429,17 +1420,17 @@ def import_collection(collection: str, target: Optional[str], output: Optional[s
             console.print(f"Description: {info['description']}")
         console.print(f"Version: {parser.version}")
         console.print(f"Endpoints found: {len(endpoints)}")
-        
+
         if full_info.get('variables'):
             console.print(f"Variables: {len(full_info['variables'])}")
-        
+
         # Display endpoints table
         table = Table(title=f"Extracted Endpoints ({len(endpoints)})")
         table.add_column("Method", style="cyan")
         table.add_column("Path", style="green")
         table.add_column("Auth", style="yellow")
         table.add_column("Parameters", style="magenta")
-        
+
         for endpoint in endpoints[:50]:  # Limit display
             auth = "🔒" if endpoint.requires_auth else "🔓"
             params = ", ".join([p.name for p in endpoint.parameters[:3]]) or "-"
@@ -1451,22 +1442,22 @@ def import_collection(collection: str, target: Optional[str], output: Optional[s
                 auth,
                 params
             )
-        
+
         console.print(table)
-        
+
         if len(endpoints) > 50:
             console.print(f"[dim]... and {len(endpoints) - 50} more endpoints[/dim]")
-        
+
         # Get base URL from collection if available
         base_url = target or parser.get_base_url()
         if base_url:
             console.print(f"\n[cyan]Detected base URL: {base_url}[/cyan]")
-        
+
         # Run scan if requested
         if scan and target:
-            console.print(f"\n🚀 [bold]Starting security scan...[/bold]")
+            console.print("\n🚀 [bold]Starting security scan...[/bold]")
             console.print("[yellow]Use the 'scan' command with --swagger for full scanning capabilities[/yellow]")
-        
+
         # Save endpoints to file if output specified
         if output:
             import json
@@ -1474,7 +1465,7 @@ def import_collection(collection: str, target: Optional[str], output: Optional[s
             with open(output, 'w') as f:
                 json.dump(endpoints_data, f, indent=2, default=str)
             console.print(f"\n[green]Endpoints saved to: {output}[/green]")
-        
+
     except PostmanParseError as e:
         console.print(f"\n[red]Parse error: {e}[/red]")
         sys.exit(1)
@@ -1509,75 +1500,75 @@ def import_collection(collection: str, target: Optional[str], output: Optional[s
     help='Base URL for the API'
 )
 def export_collection(
-    swagger: Optional[str],
-    collection: Optional[str],
+    swagger: str | None,
+    collection: str | None,
     output: str,
     name: str,
-    base_url: Optional[str]
+    base_url: str | None
 ):
     """
     Export endpoints to a Postman collection.
-    
+
     Creates a Postman Collection v2.1 file from an OpenAPI specification
     or extends an existing Postman collection.
-    
+
     Example:
         sentinel postman export --swagger api.yaml --output collection.json
         sentinel postman export --swagger api.yaml -n "My API" -u https://api.example.com -o my_api.json
     """
     print_banner()
-    console.print(f"\n📤 [bold]Exporting to Postman Collection[/bold]")
-    
+    console.print("\n📤 [bold]Exporting to Postman Collection[/bold]")
+
     try:
         endpoints = []
-        
+
         if swagger:
             console.print(f"   Source: OpenAPI ({swagger})")
             from .parser import SwaggerParser
             parser = SwaggerParser(swagger)
             endpoints = parser.parse()
-            
+
             # Get base URL from spec if not provided
             if not base_url:
                 base_url = parser.get_base_url() or "{{base_url}}"
-            
+
             # Use API title for collection name if not provided
             if name == 'Sentinel Export':
                 info = parser.get_info()
                 name = info.get('title', 'Sentinel Export')
-            
+
             console.print(f"   Endpoints: {len(endpoints)}")
-        
+
         elif collection:
             console.print(f"   Source: Postman ({collection})")
             parser = PostmanParser(collection)
             endpoints = parser.parse()
             console.print(f"   Endpoints: {len(endpoints)}")
-        
+
         else:
             console.print("[red]Error: Either --swagger or --collection must be specified[/red]")
             sys.exit(1)
-        
+
         if not endpoints:
             console.print("[red]No endpoints found to export[/red]")
             sys.exit(1)
-        
+
         # Generate collection
         generator = PostmanGenerator(name=name)
         postman_collection = generator.from_endpoints(
             endpoints=endpoints,
             base_url=base_url or "{{base_url}}"
         )
-        
+
         # Save collection
         output_path = generator.save(postman_collection, output)
-        
-        console.print(f"\n[green]✅ Collection exported successfully![/green]")
+
+        console.print("\n[green]✅ Collection exported successfully![/green]")
         console.print(f"   Name: {name}")
         console.print(f"   Endpoints: {len(endpoints)}")
         console.print(f"   Output: {output_path}")
-        console.print(f"\n[dim]Import this collection into Postman to test your API[/dim]")
-        
+        console.print("\n[dim]Import this collection into Postman to test your API[/dim]")
+
     except Exception as e:
         console.print(f"\n[red]Error: {e}[/red]")
         sys.exit(1)
@@ -1598,44 +1589,45 @@ def export_collection(
     '--base-url', '-u',
     help='Base URL for the API'
 )
-def convert_spec(input: str, output: str, name: Optional[str], base_url: Optional[str]):
+def convert_spec(input: str, output: str, name: str | None, base_url: str | None):
     """
     Convert between OpenAPI/Swagger and Postman Collection formats.
-    
+
     Supports:
     - OpenAPI/Swagger YAML/JSON → Postman Collection
     - Postman Collection → Postman Collection (normalize/repair)
-    
+
     Example:
         sentinel postman convert api.yaml -o collection.json
         sentinel postman convert api.json -o collection.json -n "My API"
     """
     print_banner()
-    console.print(f"\n🔄 [bold]Converting Specification[/bold]")
+    console.print("\n🔄 [bold]Converting Specification[/bold]")
     console.print(f"   Input: {input}")
     console.print(f"   Output: {output}\n")
-    
+
     try:
         # Determine input type
         import json
+
         import yaml
         content = Path(input).read_text()
-        
+
         is_openapi = False
         try:
             data = json.loads(content) if content.strip().startswith('{') else yaml.safe_load(content)
             if 'openapi' in data or 'swagger' in data:
                 is_openapi = True
-        except:
+        except Exception:
             pass
-        
+
         # Try YAML if JSON parse fails
         if not is_openapi and ('openapi:' in content or 'swagger:' in content):
             is_openapi = True
-        
+
         if is_openapi:
             console.print("[cyan]Detected: OpenAPI/Swagger specification[/cyan]")
-            
+
             # Convert OpenAPI to Postman
             collection = convert_openapi_to_postman(
                 openapi_path=input,
@@ -1643,29 +1635,29 @@ def convert_spec(input: str, output: str, name: Optional[str], base_url: Optiona
                 name=name,
                 base_url=base_url
             )
-            
-            console.print(f"\n[green]✅ Converted to Postman Collection![/green]")
+
+            console.print("\n[green]✅ Converted to Postman Collection![/green]")
             console.print(f"   Collection: {collection.get('info', {}).get('name', 'Unknown')}")
             console.print(f"   Output: {output}")
         else:
             console.print("[cyan]Detected: Postman Collection[/cyan]")
-            
+
             # Parse and regenerate the collection (normalize/repair)
             parser = PostmanParser(input)
             endpoints = parser.parse()
             info = parser.parse_full()['info']
-            
+
             generator = PostmanGenerator(name=name or info.get('name', 'Converted Collection'))
             collection = generator.from_endpoints(
                 endpoints=endpoints,
                 base_url=base_url or parser.get_base_url() or "{{base_url}}"
             )
             generator.save(collection, output)
-            
-            console.print(f"\n[green]✅ Collection normalized![/green]")
+
+            console.print("\n[green]✅ Collection normalized![/green]")
             console.print(f"   Endpoints: {len(endpoints)}")
             console.print(f"   Output: {output}")
-        
+
     except Exception as e:
         console.print(f"\n[red]Error: {e}[/red]")
         sys.exit(1)
@@ -1700,52 +1692,52 @@ def benchmark():
     is_flag=True,
     help='Enable verbose output'
 )
-def run_benchmark(target: str, url: Optional[str], output: str, verbose: bool):
+def run_benchmark(target: str, url: str | None, output: str, verbose: bool):
     """
     Run security benchmark against vulnerable applications.
-    
+
     Measures Sentinel's detection capabilities against known vulnerabilities.
-    
+
     Available targets:
     - crapi: OWASP crAPI (API-specific vulnerabilities)
     - juice_shop: OWASP Juice Shop (web application)
     - owasp_benchmark: OWASP Benchmark Java (comprehensive test suite)
     - all: Run all benchmarks
-    
+
     Example:
         sentinel benchmark run --target crapi --url http://localhost:8888
         sentinel benchmark run --target all
     """
     import asyncio
     import json
-    
+
     print_banner()
-    console.print(f"\n📊 [bold]Running Security Benchmarks[/bold]")
+    console.print("\n📊 [bold]Running Security Benchmarks[/bold]")
     console.print(f"   Target: {target}")
     console.print(f"   Output: {output}\n")
-    
+
     async def execute_benchmark():
         results = []
         runner = BenchmarkRunner()
-        
+
         # Define targets and their default URLs
         targets_config = {
             'crapi': {'url': url or 'http://localhost:8888', 'name': 'OWASP crAPI'},
             'juice_shop': {'url': url or 'http://localhost:3000', 'name': 'OWASP Juice Shop'},
             'owasp_benchmark': {'url': url or 'http://localhost:8080', 'name': 'OWASP Benchmark Java'}
         }
-        
+
         # Determine which targets to run
         if target == 'all':
             to_run = list(targets_config.keys())
         else:
             to_run = [target]
-        
+
         for t in to_run:
             config = targets_config[t]
             console.print(f"\n[target] [bold cyan]Running benchmark: {config['name']}[/bold cyan]")
             console.print(f"   URL: {config['url']}")
-            
+
             try:
                 result = await runner.run_benchmark(
                     target=BenchmarkTarget(t),
@@ -1753,26 +1745,26 @@ def run_benchmark(target: str, url: Optional[str], output: str, verbose: bool):
                     verbose=verbose
                 )
                 results.append(result)
-                
+
                 # Display results
                 _display_benchmark_result(result)
-                
+
             except Exception as e:
                 console.print(f"[red]Error running benchmark: {e}[/red]")
                 if verbose:
                     console.print_exception()
-        
+
         return results
-    
+
     try:
         results = asyncio.run(execute_benchmark())
-        
+
         # Generate overall summary
         if results:
             console.print("\n" + "="*60)
             console.print("📈 [bold]Overall Benchmark Summary[/bold]")
             console.print("="*60 + "\n")
-            
+
             summary_table = Table(title="Benchmark Results")
             summary_table.add_column("Target", style="cyan")
             summary_table.add_column("Total Vulns", style="white")
@@ -1780,7 +1772,7 @@ def run_benchmark(target: str, url: Optional[str], output: str, verbose: bool):
             summary_table.add_column("Precision", style="yellow")
             summary_table.add_column("Recall", style="magenta")
             summary_table.add_column("F1 Score", style="blue")
-            
+
             for r in results:
                 summary_table.add_row(
                     r.target.value,
@@ -1790,9 +1782,9 @@ def run_benchmark(target: str, url: Optional[str], output: str, verbose: bool):
                     f"{r.recall:.2%}",
                     f"{r.f1_score:.2%}"
                 )
-            
+
             console.print(summary_table)
-            
+
             # Save results
             results_data = []
             for r in results:
@@ -1809,16 +1801,16 @@ def run_benchmark(target: str, url: Optional[str], output: str, verbose: bool):
                     "detection_rate": r.detection_rate,
                     "duration_seconds": r.duration_seconds
                 })
-            
+
             with open(output, 'w') as f:
                 json.dump({
                     "sentinel_version": __version__,
                     "timestamp": time.time(),
                     "results": results_data
                 }, f, indent=2)
-            
+
             console.print(f"\n[green]Results saved to: {output}[/green]")
-        
+
     except Exception as e:
         console.print(f"\n[red]Error: {e}[/red]")
         sys.exit(1)
@@ -1829,7 +1821,7 @@ def _display_benchmark_result(result: BenchmarkResult):
     table = Table(title=f"Results for {result.target.value}")
     table.add_column("Metric", style="cyan")
     table.add_column("Value", style="green")
-    
+
     table.add_row("Total Vulnerabilities", str(result.total_vulnerabilities))
     table.add_row("Detected", str(result.detected_vulnerabilities))
     table.add_row("True Positives", str(result.true_positives))
@@ -1839,9 +1831,9 @@ def _display_benchmark_result(result: BenchmarkResult):
     table.add_row("Recall", f"{result.recall:.2%}")
     table.add_row("F1 Score", f"{result.f1_score:.2%}")
     table.add_row("Duration", f"{result.duration_seconds:.2f}s")
-    
+
     console.print(table)
-    
+
     # Category breakdown
     if result.category_results:
         cat_table = Table(title="Detection by Category")
@@ -1849,7 +1841,7 @@ def _display_benchmark_result(result: BenchmarkResult):
         cat_table.add_column("Total", style="white")
         cat_table.add_column("Detected", style="green")
         cat_table.add_column("Rate", style="yellow")
-        
+
         for cat, data in result.category_results.items():
             if data["total"] > 0:
                 rate = data["true_positives"] / data["total"] if data["total"] > 0 else 0
@@ -1859,7 +1851,7 @@ def _display_benchmark_result(result: BenchmarkResult):
                     str(data["detected"]),
                     f"{rate:.0%}"
                 )
-        
+
         console.print(cat_table)
 
 
@@ -1868,7 +1860,7 @@ def list_benchmarks():
     """List available benchmark targets and their details."""
     print_banner()
     console.print("\n📋 [bold]Available Benchmark Targets[/bold]\n")
-    
+
     targets_info = [
         ("crapi", "OWASP crAPI", "http://localhost:8888",
          "Modern REST API with OWASP API Top 10 vulnerabilities",
@@ -1880,19 +1872,19 @@ def list_benchmarks():
          "Java test suite with thousands of test cases",
          "13 known vulnerabilities (subset)")
     ]
-    
+
     table = Table()
     table.add_column("Target", style="cyan")
     table.add_column("Name", style="green")
     table.add_column("Default URL", style="yellow")
     table.add_column("Description", style="white")
     table.add_column("Vulns", style="magenta")
-    
+
     for target, name, url, desc, vulns in targets_info:
         table.add_row(target, name, url, desc[:40] + "...", vulns)
-    
+
     console.print(table)
-    
+
     console.print("\n[bold]Metrics Calculated:[/bold]")
     console.print("  • Detection Rate - Percentage of known vulnerabilities found")
     console.print("  • Precision - True Positives / (True Positives + False Positives)")
@@ -1910,17 +1902,17 @@ def list_benchmarks():
 def show_ground_truth(target: str):
     """Show ground truth vulnerabilities for benchmark targets."""
     print_banner()
-    console.print(f"\n🔍 [bold]Ground Truth Database[/bold]\n")
-    
+    console.print("\n🔍 [bold]Ground Truth Database[/bold]\n")
+
     db = GroundTruthDatabase()
-    
+
     targets_to_show = [target] if target != 'all' else ['crapi', 'juice_shop', 'owasp_benchmark']
-    
+
     for t in targets_to_show:
         vulns = db.get_vulnerabilities(BenchmarkTarget(t))
-        
+
         console.print(f"\n[bold cyan]{t.upper()} ({len(vulns)} vulnerabilities)[/bold cyan]")
-        
+
         table = Table()
         table.add_column("ID", style="dim")
         table.add_column("Category", style="cyan")
@@ -1928,7 +1920,7 @@ def show_ground_truth(target: str):
         table.add_column("Method", style="yellow")
         table.add_column("CWE", style="magenta")
         table.add_column("Severity", style="red")
-        
+
         for v in vulns[:20]:  # Show first 20
             table.add_row(
                 v.vuln_id,
@@ -1938,9 +1930,9 @@ def show_ground_truth(target: str):
                 v.cwe,
                 v.severity.value.upper()
             )
-        
+
         console.print(table)
-        
+
         if len(vulns) > 20:
             console.print(f"[dim]... and {len(vulns) - 20} more[/dim]")
 

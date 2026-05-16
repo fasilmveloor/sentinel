@@ -20,34 +20,34 @@ v1.0.0 Enhanced Modules:
 - broken_auth: Broken Authentication testing
 """
 
-from .injection import SQLInjectionAttacker
 from .auth import AuthBypassAttacker
-from .idor import IDORAttacker
-from .xss import XSSAttacker
-from .ssrf import SSRFAttacker
-from .jwt import JWTAttacker
-from .cmd_injection import CommandInjectionAttacker
-from .rate_limit import RateLimitAttacker
+from .bfla import BFLAAttacker, UserRole
 
 # v1.0.0 Enhanced Modules
 from .bola import BOLAAttacker, UserCredentials
+from .broken_auth import AuthContext, BrokenAuthAttacker
+from .cmd_injection import CommandInjectionAttacker
 from .excessive_data import ExcessiveDataExposureAttacker
+from .idor import IDORAttacker
+from .injection import SQLInjectionAttacker
+from .jwt import JWTAttacker
 from .mass_assignment import MassAssignmentAttacker
-from .bfla import BFLAAttacker, UserRole
 from .nosql_injection import NoSQLInjectionAttacker
-from .broken_auth import BrokenAuthAttacker, AuthContext
+from .rate_limit import RateLimitAttacker
+from .ssrf import SSRFAttacker
+from .xss import XSSAttacker
 
 __all__ = [
     # Core Attack Modules
     'SQLInjectionAttacker',
-    'AuthBypassAttacker', 
+    'AuthBypassAttacker',
     'IDORAttacker',
     'XSSAttacker',
     'SSRFAttacker',
     'JWTAttacker',
     'CommandInjectionAttacker',
     'RateLimitAttacker',
-    
+
     # v1.0.0 Enhanced Modules
     'BOLAAttacker',
     'UserCredentials',

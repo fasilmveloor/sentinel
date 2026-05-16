@@ -5,24 +5,17 @@ Tests API endpoints for OS command injection vulnerabilities by injecting
 shell commands in parameters and request bodies.
 """
 
-import time
 import re
-from typing import Any, Optional
+import time
+
 import requests
 
-from ..models import (
-    AttackType,
-    AttackResult,
-    Endpoint,
-    Parameter,
-    Severity,
-    Vulnerability
-)
+from ..models import AttackResult, AttackType, Endpoint, Parameter, Severity, Vulnerability
 
 
 class CommandInjectionAttacker:
     """Performs command injection attacks on API endpoints."""
-    
+
     # Command injection payloads
     PAYLOADS = {
         # Basic injection
@@ -94,7 +87,7 @@ class CommandInjectionAttacker:
             "%0d%0als",
         ],
     }
-    
+
     # Indicators of successful command injection
     SUCCESS_INDICATORS = [
         # Unix file system
@@ -106,13 +99,13 @@ class CommandInjectionAttacker:
         "/bin/sh",
         "/etc/passwd",
         "/etc/shadow",
-        
-        # Windows file system  
+
+        # Windows file system
         "\\Windows\\",
         "\\System32\\",
         "WINDOWS\\system32",
         "[boot loader]",
-        
+
         # Command output
         "total ",
         "drwx",
@@ -121,14 +114,14 @@ class CommandInjectionAttacker:
         "uid=",
         "gid=",
         "groups=",
-        
+
         # Environment info
         "Darwin",
         "Linux",
         "Windows",
         "MINGW",
         "CYGWIN",
-        
+
         # Error messages indicating command execution
         "sh: ",
         "bash: ",
@@ -137,10 +130,10 @@ class CommandInjectionAttacker:
         "No such file or directory",
         "not recognized as an internal or external command",
     ]
-    
+
     def __init__(self, target_url: str, timeout: int = 5):
         """Initialize the command injection attacker.
-        
+
         Args:
             target_url: Base URL of the target API
             timeout: Request timeout in seconds
@@ -152,53 +145,53 @@ class CommandInjectionAttacker:
             'User-Agent': 'Sentinel/2.0.0 Security Scanner',
             'Accept': '*/*'
         })
-    
-    def attack(self, endpoint: Endpoint, parameters_to_test: Optional[list[str]] = None) -> list[AttackResult]:
+
+    def attack(self, endpoint: Endpoint, parameters_to_test: list[str] | None = None) -> list[AttackResult]:
         """Perform command injection attacks on an endpoint.
-        
+
         Args:
             endpoint: The endpoint to attack
             parameters_to_test: Specific parameter names to test
-            
+
         Returns:
             List of attack results
         """
         results: list[AttackResult] = []
-        
+
         # Get testable parameters
         params_to_test = self._get_testable_parameters(endpoint, parameters_to_test)
-        
+
         for param in params_to_test:
             # Test basic payloads first
             for payload in self.PAYLOADS["basic"][:5]:
                 result = self._test_payload(endpoint, param, payload, "basic")
                 results.append(result)
-                
+
                 if result.success:
                     break
-            
+
             # Test time-based (blind) injection
             for payload in self.PAYLOADS["time_based"][:3]:
                 result = self._test_payload(endpoint, param, payload, "time_based")
                 results.append(result)
-                
+
                 if result.success:
                     # Confirmed blind injection, test data exfil
                     for exfil_payload in self.PAYLOADS["exfil"][:3]:
                         exfil_result = self._test_payload(endpoint, param, exfil_payload, "exfil")
                         results.append(exfil_result)
                     break
-        
+
         return results
-    
+
     def _get_testable_parameters(
-        self, 
-        endpoint: Endpoint, 
-        parameters_to_test: Optional[list[str]]
+        self,
+        endpoint: Endpoint,
+        parameters_to_test: list[str] | None
     ) -> list[Parameter]:
         """Get list of parameters that might be vulnerable to command injection."""
         params = []
-        
+
         # Parameter names often associated with command injection
         cmd_param_names = [
             'cmd', 'command', 'exec', 'execute', 'run', 'system', 'shell',
@@ -206,20 +199,20 @@ class CommandInjectionAttacker:
             'path', 'dir', 'folder', 'name', 'input', 'query', 'search',
             'timeout', 'delay', 'sleep', 'wait', 'callback'
         ]
-        
+
         for param in endpoint.parameters:
             if parameters_to_test and param.name not in parameters_to_test:
                 continue
-            
+
             param_lower = param.name.lower()
-            
+
             # Check if parameter name suggests command execution
             if any(cmd_param in param_lower for cmd_param in cmd_param_names):
                 params.append(param)
             # Also test string parameters
             elif param.param_type == 'string':
                 params.append(param)
-        
+
         # Check request body
         if endpoint.request_body:
             body_params = self._extract_body_parameters(endpoint.request_body)
@@ -229,38 +222,38 @@ class CommandInjectionAttacker:
                     location='body',
                     param_type='string'
                 ))
-        
+
         return params
-    
+
     def _extract_body_parameters(self, request_body: dict) -> list[str]:
         """Extract parameter names from request body schema."""
         params = []
-        
+
         content = request_body.get('content', {})
         for content_type, content_schema in content.items():
             if 'application/json' in content_type:
                 schema = content_schema.get('schema', {})
                 properties = schema.get('properties', {})
                 params.extend(properties.keys())
-        
+
         return params
-    
+
     def _test_payload(
-        self, 
-        endpoint: Endpoint, 
-        param: Parameter, 
+        self,
+        endpoint: Endpoint,
+        param: Parameter,
         payload: str,
         injection_type: str
     ) -> AttackResult:
         """Test a single command injection payload."""
         start_time = time.time()
-        
+
         try:
             url = self._build_url(endpoint.path)
-            
+
             # For time-based injection, measure response time
             is_time_based = 'sleep' in payload.lower() or 'timeout' in payload.lower()
-            
+
             if endpoint.method.value == 'GET':
                 params = {param.name: payload}
                 response = self.session.get(
@@ -276,16 +269,16 @@ class CommandInjectionAttacker:
                     json=body,
                     timeout=self.timeout + 5 if is_time_based else self.timeout
                 )
-            
+
             duration_ms = (time.time() - start_time) * 1000
-            
+
             # Check for vulnerability
             if is_time_based:
                 # Time-based detection: if response took > 4 seconds, likely vulnerable
                 is_vulnerable = duration_ms > 4000
             else:
                 is_vulnerable, evidence = self._check_cmd_injection(response)
-            
+
             return AttackResult(
                 endpoint=endpoint,
                 attack_type=AttackType.CMD_INJECTION,
@@ -296,7 +289,7 @@ class CommandInjectionAttacker:
                 duration_ms=duration_ms,
                 extra_data={'injection_type': injection_type}
             )
-            
+
         except requests.exceptions.Timeout:
             # Timeout might indicate successful time-based injection
             duration_ms = (self.timeout + 5) * 1000
@@ -317,19 +310,19 @@ class CommandInjectionAttacker:
                 payload=payload,
                 error_message=str(e)
             )
-    
+
     def _build_url(self, path: str) -> str:
         """Build full URL from path."""
         return f"{self.target_url}{path}"
-    
-    def _check_cmd_injection(self, response: requests.Response) -> tuple[bool, Optional[str]]:
+
+    def _check_cmd_injection(self, response: requests.Response) -> tuple[bool, str | None]:
         """Check if response indicates command injection vulnerability.
-        
+
         Returns:
             Tuple of (is_vulnerable, evidence)
         """
         response_text = response.text
-        
+
         # Check for success indicators
         for indicator in self.SUCCESS_INDICATORS:
             if indicator in response_text:
@@ -337,9 +330,9 @@ class CommandInjectionAttacker:
                 # Check for command output patterns
                 if self._is_command_output(response_text, indicator):
                     return True, f"Found indicator: {indicator}"
-        
+
         return False, None
-    
+
     def _is_command_output(self, text: str, indicator: str) -> bool:
         """Verify that the indicator is likely command output."""
         # Check for common command output patterns
@@ -352,43 +345,43 @@ class CommandInjectionAttacker:
             r'root:.*:.*:.*:',  # /etc/passwd format
             r'\[boot loader\]',  # Windows boot.ini
         ]
-        
+
         for pattern in patterns:
             if re.search(pattern, text):
                 return True
-        
+
         # Check if indicator appears in context suggesting command output
         lines = text.split('\n')
         for line in lines:
             if indicator in line and len(line.strip()) < 200:
                 # Short lines with indicators often are command output
                 return True
-        
+
         return False
-    
+
     def create_vulnerability(self, result: AttackResult, endpoint: Endpoint) -> Vulnerability:
         """Create a Vulnerability object from an attack result."""
         injection_type = 'basic'
         if result.extra_data:
             injection_type = result.extra_data.get('injection_type', 'basic')
-        
+
         severity = Severity.CRITICAL
         if injection_type == 'time_based':
             severity = Severity.HIGH
-        
+
         duration_str = f"{result.duration_ms:.0f}ms" if result.duration_ms else "N/A"
-        
+
         return Vulnerability(
             endpoint=endpoint,
             attack_type=AttackType.CMD_INJECTION,
             severity=severity,
             title=f"OS Command Injection in {endpoint.full_path}",
             description=(
-                f"OS Command Injection vulnerability detected. The application passes "
-                f"user-controlled input to system commands without proper sanitization. "
-                f"An attacker can execute arbitrary commands on the server, potentially "
-                f"leading to complete system compromise, data exfiltration, or "
-                f"lateral movement within the network."
+                "OS Command Injection vulnerability detected. The application passes "
+                "user-controlled input to system commands without proper sanitization. "
+                "An attacker can execute arbitrary commands on the server, potentially "
+                "leading to complete system compromise, data exfiltration, or "
+                "lateral movement within the network."
             ),
             payload=result.payload or "",
             proof_of_concept=(

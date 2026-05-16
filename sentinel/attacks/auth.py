@@ -8,21 +8,15 @@ Tests API endpoints for authentication vulnerabilities by:
 """
 
 import time
-from typing import Any, Optional
+
 import requests
 
-from ..models import (
-    AttackType,
-    AttackResult,
-    Endpoint,
-    Severity,
-    Vulnerability
-)
+from ..models import AttackResult, AttackType, Endpoint, Severity, Vulnerability
 
 
 class AuthBypassAttacker:
     """Performs authentication bypass attacks on API endpoints."""
-    
+
     # Test tokens for bypass attempts
     TEST_TOKENS = [
         # No token
@@ -46,7 +40,7 @@ class AuthBypassAttacker:
         # JWT-like tokens with manipulation
         "Bearer eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9.",
     ]
-    
+
     # Common authorization headers
     AUTH_HEADERS = [
         "Authorization",
@@ -56,10 +50,10 @@ class AuthBypassAttacker:
         "Api-Key",
         "Token",
     ]
-    
+
     def __init__(self, target_url: str, timeout: int = 5):
         """Initialize the auth bypass attacker.
-        
+
         Args:
             target_url: Base URL of the target API
             timeout: Request timeout in seconds
@@ -71,78 +65,77 @@ class AuthBypassAttacker:
             'User-Agent': 'Sentinel/0.1.0 Security Scanner',
             'Accept': 'application/json'
         })
-    
+
     def attack(
-        self, 
+        self,
         endpoint: Endpoint,
-        valid_token: Optional[str] = None,
-        parameters_to_test: Optional[list[str]] = None
+        valid_token: str | None = None,
+        parameters_to_test: list[str] | None = None
     ) -> list[AttackResult]:
         """Perform authentication bypass attacks on an endpoint.
-        
+
         Args:
             endpoint: The endpoint to attack
             valid_token: A valid token to compare against (optional)
             parameters_to_test: Specific parameters to test (not used for auth)
-            
+
         Returns:
             List of attack results
         """
         results: list[AttackResult] = []
-        
+
         # Handle API misuse - if valid_token is a list, it's actually parameters
         if valid_token is not None and isinstance(valid_token, list):
-            parameters_to_test = valid_token
             valid_token = None
-        
+
         # Only test endpoints that should require auth
         if not endpoint.requires_auth:
             # Still test - might be protected but not marked in spec
             pass
-        
+
         # Test without any authentication
         result = self._test_no_auth(endpoint)
         results.append(result)
-        
+
         # Test with invalid tokens
         for token in self.TEST_TOKENS:
             if token is None:
                 continue  # Already tested no auth
-            
+
             result = self._test_invalid_token(endpoint, token)
             results.append(result)
-        
+
         # Test with manipulated tokens if we have a valid one
         if valid_token:
             for manipulated in self._manipulate_token(valid_token):
                 result = self._test_invalid_token(endpoint, manipulated)
                 results.append(result)
-        
+
         return results
-    
+
     def _test_no_auth(self, endpoint: Endpoint) -> AttackResult:
         """Test endpoint without any authentication."""
         start_time = time.time()
-        
+
         try:
             url = self._build_url(endpoint.path)
-            
+
             # Remove any existing auth headers
             headers = {
                 k: v for k, v in self.session.headers.items()
                 if k.lower() not in [h.lower() for h in self.AUTH_HEADERS]
             }
-            
+
             response = self.session.request(
                 endpoint.method.value,
                 url,
                 headers=headers,
                 timeout=self.timeout
             )
-            
+
             duration_ms = (time.time() - start_time) * 1000
             is_vulnerable = self._is_auth_bypass(response)
-            
+
             return AttackResult(
                 endpoint=endpoint,
                 attack_type=AttackType.AUTH_BYPASS,
@@ -152,7 +145,7 @@ class AuthBypassAttacker:
                 response_body=response.text[:500],
                 duration_ms=duration_ms
             )
-            
+
         except requests.exceptions.Timeout:
             return AttackResult(
                 endpoint=endpoint,
@@ -169,27 +162,27 @@ class AuthBypassAttacker:
                 payload="No authentication",
                 error_message=str(e)
             )
-    
+
     def _test_invalid_token(self, endpoint: Endpoint, token: str) -> AttackResult:
         """Test endpoint with an invalid token."""
         start_time = time.time()
-        
+
         try:
             url = self._build_url(endpoint.path)
-            
+
             headers = dict(self.session.headers)
             headers['Authorization'] = f"Bearer {token}" if not token.startswith('Bearer') else token
-            
+
             response = self.session.request(
                 endpoint.method.value,
                 url,
                 headers=headers,
                 timeout=self.timeout
             )
-            
+
             duration_ms = (time.time() - start_time) * 1000
             is_vulnerable = self._is_auth_bypass(response)
-            
+
             return AttackResult(
                 endpoint=endpoint,
                 attack_type=AttackType.AUTH_BYPASS,
@@ -199,7 +192,7 @@ class AuthBypassAttacker:
                 response_body=response.text[:500],
                 duration_ms=duration_ms
             )
-            
+
         except requests.exceptions.Timeout:
             return AttackResult(
                 endpoint=endpoint,
@@ -216,42 +209,42 @@ class AuthBypassAttacker:
                 payload=f"Invalid token: {token[:50]}...",
                 error_message=str(e)
             )
-    
+
     def _build_url(self, path: str) -> str:
         """Build full URL from path."""
         return f"{self.target_url}{path}"
-    
+
     def _is_auth_bypass(self, response: requests.Response) -> bool:
         """Check if response indicates successful auth bypass."""
         # Success status codes when should be unauthorized
         if response.status_code in [200, 201, 202, 204]:
             return True
-        
+
         # Redirect to authorized area instead of login
         if response.status_code in [301, 302, 303, 307, 308]:
             location = response.headers.get('Location', '')
             if 'login' not in location.lower() and 'auth' not in location.lower():
                 return True
-        
+
         return False
-    
+
     def _manipulate_token(self, token: str) -> list[str]:
         """Generate manipulated versions of a valid token."""
         manipulated = []
-        
+
         # Remove last character
         if len(token) > 1:
             manipulated.append(token[:-1])
-        
+
         # Change case
         if token.isalpha():
             manipulated.append(token.upper())
             manipulated.append(token.lower())
-        
+
         # Add common suffixes
         manipulated.append(token + "1")
         manipulated.append(token + "admin")
-        
+
         # JWT manipulation (if looks like JWT)
         if token.count('.') == 2:
             parts = token.split('.')
@@ -259,12 +252,12 @@ class AuthBypassAttacker:
             manipulated.append(f"{parts[0]}.{parts[1]}.")
             # Try empty signature
             manipulated.append(f"{parts[0]}.{parts[1]}.signature")
-        
+
         return manipulated
-    
+
     def create_vulnerability(
-        self, 
-        result: AttackResult, 
+        self,
+        result: AttackResult,
         endpoint: Endpoint
     ) -> Vulnerability:
         """Create a Vulnerability object from an attack result."""
@@ -274,9 +267,9 @@ class AuthBypassAttacker:
             severity=Severity.CRITICAL,
             title=f"Authentication Bypass in {endpoint.full_path}",
             description=(
-                f"Authentication bypass vulnerability detected. The endpoint allows "
-                f"access without valid authentication credentials. This allows "
-                f"unauthorized access to protected resources and sensitive data."
+                "Authentication bypass vulnerability detected. The endpoint allows "
+                "access without valid authentication credentials. This allows "
+                "unauthorized access to protected resources and sensitive data."
             ),
             payload=result.payload or "",
             proof_of_concept=(

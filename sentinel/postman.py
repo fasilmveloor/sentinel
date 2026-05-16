@@ -38,18 +38,17 @@ import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional, Union
-from urllib.parse import urlparse, parse_qs, unquote
+from typing import Any
+from urllib.parse import parse_qs, unquote, urlparse
 
 from .models import (
+    AttackResult,
     Endpoint,
     HttpMethod,
     Parameter,
-    AttackResult,
-    Vulnerability,
     ScanConfig,
     ScanResult,
-    Severity,
+    Vulnerability,
 )
 
 
@@ -84,7 +83,7 @@ class PostmanVariable:
         self,
         key: str,
         value: Any = "",
-        description: Optional[str] = None,
+        description: str | None = None,
         type: str = "string",
         disabled: bool = False
     ):
@@ -133,12 +132,12 @@ class PostmanRequest:
         name: str,
         method: HttpMethod,
         url: str,
-        description: Optional[str] = None,
-        headers: Optional[dict[str, str]] = None,
-        body: Optional[Any] = None,
-        auth: Optional[dict] = None,
-        tests: Optional[str] = None,
-        pre_request_script: Optional[str] = None
+        description: str | None = None,
+        headers: dict[str, str] | None = None,
+        body: Any | None = None,
+        auth: dict | None = None,
+        tests: str | None = None,
+        pre_request_script: str | None = None
     ):
         self.name = name
         self.method = method
@@ -291,7 +290,7 @@ class PostmanParser:
             content = self.collection_path.read_text(encoding='utf-8')
             self.collection = json.loads(content)
         except json.JSONDecodeError as e:
-            raise PostmanParseError(f"Failed to parse collection as JSON: {e}")
+            raise PostmanParseError(f"Failed to parse collection as JSON: {e}") from e
 
         if not isinstance(self.collection, dict):
             raise PostmanParseError("Collection must be a JSON object")
@@ -334,7 +333,7 @@ class PostmanParser:
                 if key:
                     self.variables[key] = value
 
-    def _extract_auth(self) -> Optional[dict]:
+    def _extract_auth(self) -> dict | None:
         """Extract collection-level authentication."""
         return self.collection.get("auth")
 
@@ -367,7 +366,7 @@ class PostmanParser:
         endpoints: list[Endpoint] = []
         collection_auth = self._extract_auth()
 
-        def process_items(items: list, parent_auth: Optional[dict] = None) -> None:
+        def process_items(items: list, parent_auth: dict | None = None) -> None:
             for item in items:
                 if not isinstance(item, dict):
                     continue
@@ -397,8 +396,8 @@ class PostmanParser:
     def _parse_request(
         self,
         item: dict,
-        collection_auth: Optional[dict] = None
-    ) -> Optional[Endpoint]:
+        collection_auth: dict | None = None
+    ) -> Endpoint | None:
         """Parse a single request item to an Endpoint."""
         request = item.get("request", {})
         if not isinstance(request, dict):
@@ -582,7 +581,7 @@ class PostmanParser:
 
         return re.sub(pattern, replace_var, value)
 
-    def get_base_url(self) -> Optional[str]:
+    def get_base_url(self) -> str | None:
         """
         Extract the base URL from the collection.
 
@@ -641,7 +640,7 @@ class PostmanGenerator:
     def __init__(
         self,
         name: str = "Sentinel Export",
-        description: Optional[str] = None
+        description: str | None = None
     ):
         """
         Initialize the generator.
@@ -656,8 +655,8 @@ class PostmanGenerator:
     def create_collection(
         self,
         items: list[dict],
-        variables: Optional[list[dict]] = None,
-        auth: Optional[dict] = None
+        variables: list[dict] | None = None,
+        auth: dict | None = None
     ) -> dict:
         """
         Create a Postman collection structure.
@@ -692,8 +691,8 @@ class PostmanGenerator:
         self,
         endpoints: list[Endpoint],
         base_url: str = "{{base_url}}",
-        auth_type: Optional[str] = None,
-        auth_config: Optional[dict] = None,
+        auth_type: str | None = None,
+        auth_config: dict | None = None,
         group_by_tag: bool = True
     ) -> dict:
         """
@@ -1158,7 +1157,7 @@ def generate_postman_collection(
     endpoints: list[Endpoint],
     name: str = "Sentinel Export",
     base_url: str = "{{base_url}}",
-    output_path: Optional[str] = None
+    output_path: str | None = None
 ) -> dict:
     """
     Generate a Postman collection from endpoints.
@@ -1183,9 +1182,9 @@ def generate_postman_collection(
 
 def convert_openapi_to_postman(
     openapi_path: str,
-    output_path: Optional[str] = None,
-    name: Optional[str] = None,
-    base_url: Optional[str] = None
+    output_path: str | None = None,
+    name: str | None = None,
+    base_url: str | None = None
 ) -> dict:
     """
     Convert an OpenAPI specification to a Postman collection.

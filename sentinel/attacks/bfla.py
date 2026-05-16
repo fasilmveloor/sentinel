@@ -7,20 +7,14 @@ Tests API endpoints for BFLA vulnerabilities by:
 - Testing horizontal and vertical privilege escalation
 """
 
-import time
 import json
 import re
-from typing import Optional
+import time
 from dataclasses import dataclass
+
 import requests
 
-from ..models import (
-    AttackType,
-    AttackResult,
-    Endpoint,
-    Severity,
-    Vulnerability
-)
+from ..models import AttackResult, AttackType, Endpoint, Severity, Vulnerability
 
 
 @dataclass
@@ -33,11 +27,11 @@ class UserRole:
 
 class BFLAAttacker:
     """Detects Broken Function Level Authorization vulnerabilities.
-    
+
     BFLA occurs when regular users can access administrative functions
     that should be restricted to privileged users.
     """
-    
+
     # Admin endpoint patterns to test
     ADMIN_PATH_PATTERNS = [
         # Direct admin paths
@@ -47,26 +41,26 @@ class BFLAAttacker:
         r'/management',
         r'/backend',
         r'/control',
-        
+
         # Admin operations
         r'/delete',
         r'/remove',
         r'/purge',
         r'/destroy',
-        
+
         # User management
         r'/users/all',
         r'/users/list',
         r'/users/\d+',
         r'/all',
         r'/list',
-        
+
         # System operations
         r'/config',
         r'/settings',
         r'/system',
         r'/internal',
-        
+
         # Dangerous operations
         r'/export',
         r'/import',
@@ -75,16 +69,16 @@ class BFLAAttacker:
         r'/execute',
         r'/run',
     ]
-    
+
     # HTTP methods that often require elevated privileges
     PRIVILEGED_METHODS = ['DELETE', 'PUT']
-    
+
     # Parameters that suggest admin operations
     ADMIN_PARAM_NAMES = [
         'is_admin', 'isAdmin', 'role', 'user_role',
         'permissions', 'access_level', 'privileges'
     ]
-    
+
     # Expected admin-only endpoints in common APIs
     COMMON_ADMIN_ENDPOINTS = [
         '/api/admin/users',
@@ -97,10 +91,10 @@ class BFLAAttacker:
         '/api/v1/admin',
         '/api/v2/admin',
     ]
-    
+
     def __init__(self, target_url: str, timeout: int = 10):
         """Initialize the BFLA detector.
-        
+
         Args:
             target_url: Base URL of the target API
             timeout: Request timeout in seconds
@@ -111,21 +105,21 @@ class BFLAAttacker:
         self.admin_tokens: list[str] = []
         self.regular_tokens: list[str] = []
         self.sessions: dict[str, requests.Session] = {}
-    
+
     def set_user_roles(self, roles: list[UserRole]):
         """Set user roles for testing.
-        
+
         Args:
             roles: List of UserRole objects with tokens and admin status
         """
         self.user_roles = roles
-        
+
         for role in roles:
             if role.is_admin:
                 self.admin_tokens.append(role.token)
             else:
                 self.regular_tokens.append(role.token)
-            
+
             # Create session for each role
             session = requests.Session()
             session.headers.update({
@@ -134,57 +128,56 @@ class BFLAAttacker:
                 'Authorization': f"Bearer {role.token}"
             })
             self.sessions[role.name] = session
-    
+
     def attack(
         self,
         endpoint: Endpoint,
-        auth_token: Optional[str] = None,
-        parameters_to_test: Optional[list[str]] = None
+        auth_token: str | None = None,
+        parameters_to_test: list[str] | None = None
     ) -> list[AttackResult]:
         """Perform BFLA attacks on an endpoint.
-        
+
         Args:
             endpoint: The endpoint to attack
             auth_token: Authentication token (treated as regular user)
             parameters_to_test: Not used for this attack type
-            
+
         Returns:
             List of attack results
         """
         results: list[AttackResult] = []
-        
+
         # Handle API misuse
         if auth_token is not None and isinstance(auth_token, list):
-            parameters_to_test = auth_token
             auth_token = None
-        
+
         # Check if this endpoint looks like an admin endpoint
         is_admin_endpoint = self._is_admin_endpoint(endpoint.path)
-        
+
         # Check for dangerous methods
         is_dangerous_method = endpoint.method.value in self.PRIVILEGED_METHODS
-        
+
         if not self.regular_tokens and auth_token:
             # Single token mode - test without distinguishing roles
             return self._test_single_token(endpoint, auth_token)
-        
+
         # Test with regular user tokens on admin endpoints
         if is_admin_endpoint or is_dangerous_method:
             for token in self.regular_tokens:
                 result = self._test_privilege_escalation(endpoint, token, "regular_user")
                 if result and result.success:
                     results.append(result)
-        
+
         # Test for horizontal privilege escalation (same role, different resource)
         if self._has_resource_ids(endpoint.path):
             for token in self.regular_tokens:
                 result = self._test_horizontal_escalation(endpoint, token)
                 if result:
                     results.append(result)
-        
+
         # Test discovered admin endpoints with regular user
         results.extend(self._test_admin_endpoints_discovery(endpoint))
-        
+
         return results
 
     def _is_sensitive_data(self, response_text: str) -> bool:
@@ -192,7 +185,7 @@ class BFLAAttacker:
         response_lower = response_text.lower()
         return any(field in response_lower for field in ["email", "username", "account", "user"])
 
-    def _extract_evidence_excerpt(self, response_text: str) -> Optional[str]:
+    def _extract_evidence_excerpt(self, response_text: str) -> str | None:
         """Extract a focused evidence snippet around sensitive fields."""
         response_lower = response_text.lower()
         for field in ["email", "username", "account", "user"]:
@@ -224,10 +217,10 @@ class BFLAAttacker:
         endpoint: Endpoint,
         payload: str,
         url: str,
-        mutation: Optional[str] = None,
-        response: Optional[requests.Response] = None,
-        error_message: Optional[str] = None,
-        duration_ms: Optional[float] = None,
+        mutation: str | None = None,
+        response: requests.Response | None = None,
+        error_message: str | None = None,
+        duration_ms: float | None = None,
         success: bool = False,
     ) -> AttackResult:
         """Create a BFLA result with proof fields."""
@@ -250,21 +243,21 @@ class BFLAAttacker:
             error_message=error_message,
             extra_data={"mutation": mutation} if mutation else None,
         )
-    
+
     def _is_admin_endpoint(self, path: str) -> bool:
         """Check if path looks like an admin endpoint."""
         path_lower = path.lower()
-        
+
         for pattern in self.ADMIN_PATH_PATTERNS:
             if re.search(pattern, path_lower):
                 return True
-        
+
         return False
-    
+
     def _has_resource_ids(self, path: str) -> bool:
         """Check if path contains resource IDs."""
         return bool(re.search(r'\{[^}]+_?id\}', path.lower()))
-    
+
     def _test_single_token(
         self,
         endpoint: Endpoint,
@@ -272,14 +265,14 @@ class BFLAAttacker:
     ) -> list[AttackResult]:
         """Test with a single token when no role distinction available."""
         results: list[AttackResult] = []
-        
+
         session = requests.Session()
         session.headers.update({
             'User-Agent': 'Sentinel/1.0 BFLA Scanner',
             'Accept': 'application/json',
             'Authorization': f"Bearer {token}"
         })
-        
+
         # Test if endpoint is accessible without proper role check
         if self._is_admin_endpoint(endpoint.path):
             try:
@@ -335,7 +328,7 @@ class BFLAAttacker:
 
                 if last_result is not None and last_result.success:
                     results.append(last_result)
-                
+
             except Exception as e:
                 results.append(
                     self._build_attack_result(
@@ -346,15 +339,15 @@ class BFLAAttacker:
                         success=False,
                     )
                 )
-        
+
         return results
-    
+
     def _test_privilege_escalation(
         self,
         endpoint: Endpoint,
         token: str,
         role_name: str
-    ) -> Optional[AttackResult]:
+    ) -> AttackResult | None:
         """Test if regular user can access admin functions."""
         session = requests.Session()
         session.headers.update({
@@ -362,7 +355,7 @@ class BFLAAttacker:
             'Accept': 'application/json',
             'Authorization': f"Bearer {token}"
         })
-        
+
         try:
             url = f"{self.target_url}{endpoint.path}"
             # Build request body if needed
@@ -422,7 +415,7 @@ class BFLAAttacker:
                     break
 
             return last_result
-            
+
         except Exception as e:
             return self._build_attack_result(
                 endpoint=endpoint,
@@ -431,12 +424,12 @@ class BFLAAttacker:
                 error_message=str(e),
                 success=False,
             )
-    
+
     def _test_horizontal_escalation(
         self,
         endpoint: Endpoint,
         token: str
-    ) -> Optional[AttackResult]:
+    ) -> AttackResult | None:
         """Test horizontal privilege escalation."""
         session = requests.Session()
         session.headers.update({
@@ -444,22 +437,22 @@ class BFLAAttacker:
             'Accept': 'application/json',
             'Authorization': f"Bearer {token}"
         })
-        
+
         # Test with different resource IDs
         test_ids = ['1', '2', '100', '999']
-        
+
         for test_id in test_ids:
             try:
                 # Replace path parameters with test ID
                 modified_path = re.sub(r'\{[^}]+\}', test_id, endpoint.path)
                 url = f"{self.target_url}{modified_path}"
-                
+
                 response = session.request(
                     endpoint.method.value,
                     url,
                     timeout=self.timeout
                 )
-                
+
                 if self._is_bfla_vulnerable(response):
                     return AttackResult(
                         endpoint=endpoint,
@@ -469,23 +462,23 @@ class BFLAAttacker:
                         response_status=response.status_code,
                         response_body=response.text[:500]
                     )
-                    
+
             except Exception:
                 pass
-        
+
         return None
-    
+
     def _test_admin_endpoints_discovery(
         self,
         known_endpoint: Endpoint
     ) -> list[AttackResult]:
         """Discover and test common admin endpoints."""
         results: list[AttackResult] = []
-        
+
         # Only test if we have regular user tokens
         if not self.regular_tokens:
             return results
-        
+
         for admin_path in self.COMMON_ADMIN_ENDPOINTS:
             for token in self.regular_tokens:
                 session = requests.Session()
@@ -494,14 +487,14 @@ class BFLAAttacker:
                     'Accept': 'application/json',
                     'Authorization': f"Bearer {token}"
                 })
-                
+
                 try:
                     url = f"{self.target_url}{admin_path}"
                     start_time = time.time()
-                    
+
                     response = session.get(url, timeout=self.timeout)
                     duration_ms = (time.time() - start_time) * 1000
-                    
+
                     if response.status_code == 200:
                         # Create a synthetic endpoint for reporting
                         synthetic_endpoint = Endpoint(
@@ -509,7 +502,7 @@ class BFLAAttacker:
                             method=known_endpoint.method,
                             parameters=[]
                         )
-                        
+
                         results.append(AttackResult(
                             endpoint=synthetic_endpoint,
                             attack_type=AttackType.BFLA,
@@ -521,12 +514,12 @@ class BFLAAttacker:
                             response_body=response.text[:500],
                             duration_ms=duration_ms
                         ))
-                        
+
                 except Exception:
                     pass
-        
+
         return results
-    
+
     def _is_bfla_vulnerable(self, response: requests.Response) -> bool:
         """Check if response indicates BFLA vulnerability."""
         # Success codes without proper authorization
@@ -535,30 +528,30 @@ class BFLAAttacker:
             try:
                 data = response.json()
                 data_str = json.dumps(data).lower()
-                
+
                 # Check for explicit authorization error
                 auth_error_indicators = [
                     'unauthorized', 'forbidden', 'access denied',
                     'permission denied', 'not authorized', 'insufficient'
                 ]
-                
+
                 if any(indicator in data_str for indicator in auth_error_indicators):
                     return False
-                
+
                 # Data returned suggests successful unauthorized access
                 if isinstance(data, dict) and ('data' in data or 'items' in data or 'id' in data):
                     return True
-                
+
                 if isinstance(data, list) and len(data) > 0:
                     return True
-                    
-            except:
+
+            except Exception:
                 # Non-JSON success response
                 if len(response.text) > 0:
                     return True
-        
+
         return False
-    
+
     def _get_default(self, param) -> any:
         """Get default value for parameter type."""
         defaults = {
@@ -568,7 +561,7 @@ class BFLAAttacker:
             'boolean': True,
         }
         return defaults.get(param.param_type, 'test')
-    
+
     def create_vulnerability(
         self,
         result: AttackResult,
@@ -581,10 +574,10 @@ class BFLAAttacker:
             severity=Severity.HIGH,
             title=f"BFLA in {endpoint.full_path}",
             description=(
-                f"Broken Function Level Authorization (BFLA) vulnerability detected. "
-                f"The API endpoint does not properly enforce role-based access control, "
-                f"allowing regular users to access administrative functions. "
-                f"This enables privilege escalation and unauthorized actions."
+                "Broken Function Level Authorization (BFLA) vulnerability detected. "
+                "The API endpoint does not properly enforce role-based access control, "
+                "allowing regular users to access administrative functions. "
+                "This enables privilege escalation and unauthorized actions."
             ),
             payload=result.payload or "",
             proof_of_concept=(
