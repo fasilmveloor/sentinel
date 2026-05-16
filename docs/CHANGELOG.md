@@ -4,7 +4,32 @@ All notable changes to Sentinel are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [1.0.0] - 2026-02-27
+## [2.0.0] - 2026-05-16
+
+### Major Release
+
+Sentinel v2.0.0 represents a significant evolution with enhanced attack modules, improved orchestration, and better code quality.
+
+#### New Attack Modules
+- **BFLA (Broken Function Level Authorization)**: Admin endpoint privilege escalation
+- **BOLA (Broken Object Level Authorization)**: Cross-tenant access detection
+- **Broken Authentication**: Comprehensive auth weakness detection
+- **Excessive Data Exposure**: PII/credential leakage detection
+- **Mass Assignment**: Parameter pollution detection
+
+#### Architecture Improvements
+- **SentinelOrchestrator**: Bounded autonomous loop with task deduplication
+- **ScanContext**: Shared state for discovered IDs, tokens, and findings
+- **TaskQueue**: FIFO queue with automatic deduplication
+- **Attack chaining**: SQLi → IDOR follow-up support
+
+#### Code Quality
+- 1040+ unit/integration/e2e tests
+- 81% code coverage
+- Ruff linting: 0 errors
+- MyPy: type checking configured
+
+### [1.0.0] - 2026-02-27
 
 ### First Stable Release
 
