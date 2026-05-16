@@ -130,9 +130,45 @@ jobs:
       - name: Run MyPy
         run: mypy sentinel/ --ignore-missing-imports || true
 
+  code-security:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install security tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit safety
+
+      - name: Run Bandit
+        run: bandit -r sentinel/ -f json --output bandit-report.json || true
+        continue-on-error: true
+
+      - name: Check dependencies with Safety
+        run: |
+          pip freeze | safety check --json || true
+        continue-on-error: true
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            bandit-report.json
+          retention-days: 7
+
   build:
     runs-on: ubuntu-latest
-    needs: [test, lint]
+    needs: [test, lint, code-security]
 
     steps:
       - name: Checkout code
