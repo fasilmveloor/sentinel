@@ -7,30 +7,23 @@ Generates machine-readable reports for CI/CD integration.
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Any
 
-from sentinel.models import (
-    ScanResult,
-    Vulnerability,
-    Severity,
-    AttackType,
-    Endpoint
-)
+from sentinel.models import AttackType, ScanResult, Severity, Vulnerability
 
 
 class JSONReporter:
     """Generates JSON reports for programmatic access."""
-    
+
     def __init__(self, output_path: str = "sentinel_report.json"):
         """Initialize the JSON reporter."""
         self.output_path = Path(output_path)
-    
+
     def generate(self, scan_result: ScanResult) -> dict:
         """Generate a JSON report.
-        
+
         Args:
             scan_result: The scan result to report on
-            
+
         Returns:
             Dictionary representation of the report
         """
@@ -78,25 +71,25 @@ class JSONReporter:
             ],
             "ai_decisions": scan_result.ai_decisions
         }
-    
+
     def save(self, scan_result: ScanResult) -> str:
         """Generate and save the report to a file.
-        
+
         Args:
             scan_result: The scan result to report on
-            
+
         Returns:
             Path to the saved report file
         """
         content = self.generate(scan_result)
-        
+
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(self.output_path, 'w', encoding='utf-8') as f:
             json.dump(content, f, indent=2)
-        
+
         return str(self.output_path)
-    
+
     def _count_by_attack_type(self, vulnerabilities: list[Vulnerability]) -> dict:
         """Count vulnerabilities by attack type."""
         counts = {}
@@ -104,7 +97,7 @@ class JSONReporter:
             attack_name = vuln.attack_type.value
             counts[attack_name] = counts.get(attack_name, 0) + 1
         return counts
-    
+
     def _vulnerability_to_dict(self, vuln: Vulnerability, index: int) -> dict:
         """Convert vulnerability to dictionary."""
         return {
@@ -129,20 +122,20 @@ class JSONReporter:
 
 class SARIFReporter:
     """Generates SARIF reports for GitHub Code Scanning integration."""
-    
+
     def __init__(self, output_path: str = "sentinel_report.sarif"):
         """Initialize the SARIF reporter."""
         self.output_path = Path(output_path)
-    
+
     def generate(self, scan_result: ScanResult) -> dict:
         """Generate a SARIF report.
-        
+
         SARIF (Static Analysis Results Interchange Format) is a standard
         format for static analysis tools, supported by GitHub Code Scanning.
-        
+
         Args:
             scan_result: The scan result to report on
-            
+
         Returns:
             SARIF-compliant dictionary
         """
@@ -176,23 +169,23 @@ class SARIFReporter:
                 }
             ]
         }
-    
+
     def save(self, scan_result: ScanResult) -> str:
         """Generate and save the SARIF report."""
         content = self.generate(scan_result)
-        
+
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(self.output_path, 'w', encoding='utf-8') as f:
             json.dump(content, f, indent=2)
-        
+
         return str(self.output_path)
-    
+
     def _generate_rules(self, vulnerabilities: list[Vulnerability]) -> list:
         """Generate SARIF rules from vulnerabilities."""
         # Group by attack type for unique rules
         rules_map = {}
-        
+
         for vuln in vulnerabilities:
             rule_id = self._get_rule_id(vuln.attack_type)
             if rule_id not in rules_map:
@@ -219,14 +212,14 @@ class SARIFReporter:
                         "cwe": vuln.cwe_id
                     }
                 }
-        
+
         return list(rules_map.values())
-    
+
     def _generate_results(self, vulnerabilities: list[Vulnerability]) -> list:
         """Generate SARIF results from vulnerabilities."""
         results = []
-        
-        for i, vuln in enumerate(vulnerabilities, 1):
+
+        for _i, vuln in enumerate(vulnerabilities, 1):
             result = {
                 "ruleId": self._get_rule_id(vuln.attack_type),
                 "ruleIndex": 0,
@@ -264,7 +257,7 @@ class SARIFReporter:
                     "cvss_score": vuln.cvss_score
                 }
             }
-            
+
             # Add code flows for complex vulnerabilities
             if vuln.proof_of_concept:
                 result["codeFlows"] = [
@@ -289,15 +282,15 @@ class SARIFReporter:
                         ]
                     }
                 ]
-            
+
             results.append(result)
-        
+
         return results
-    
+
     def _get_rule_id(self, attack_type: AttackType) -> str:
         """Get SARIF rule ID for attack type."""
         return f"SEN{attack_type.value.upper()}"
-    
+
     def _get_rule_name(self, attack_type: AttackType) -> str:
         """Get rule name for attack type."""
         names = {
@@ -311,7 +304,7 @@ class SARIFReporter:
             AttackType.RATE_LIMIT: "Rate Limit Issue Detection",
         }
         return names.get(attack_type, attack_type.value.title())
-    
+
     def _get_rule_description(self, attack_type: AttackType) -> str:
         """Get short rule description."""
         descriptions = {
@@ -325,11 +318,11 @@ class SARIFReporter:
             AttackType.RATE_LIMIT: "Detects rate limiting issues",
         }
         return descriptions.get(attack_type, f"Detects {attack_type.value} vulnerabilities")
-    
+
     def _get_rule_full_description(self, attack_type: AttackType) -> str:
         """Get full rule description."""
         return self._get_rule_description(attack_type) + " in API endpoints."
-    
+
     def _get_help_uri(self, attack_type: AttackType) -> str:
         """Get help URI for attack type."""
         uris = {
@@ -343,7 +336,7 @@ class SARIFReporter:
             AttackType.RATE_LIMIT: "https://owasp.org/www-community/controls/Blocking_Brute_Force_Attacks",
         }
         return uris.get(attack_type, "https://owasp.org/")
-    
+
     def _severity_to_sarif_level(self, severity: Severity) -> str:
         """Convert severity to SARIF level."""
         mapping = {
@@ -358,46 +351,46 @@ class SARIFReporter:
 
 class JUnitReporter:
     """Generates JUnit XML reports for CI/CD integration."""
-    
+
     def __init__(self, output_path: str = "sentinel_report.xml"):
         """Initialize the JUnit reporter."""
         self.output_path = Path(output_path)
-    
+
     def generate(self, scan_result: ScanResult) -> str:
         """Generate a JUnit XML report."""
         # Build test cases for each vulnerability
         test_cases = []
-        
-        for i, vuln in enumerate(scan_result.vulnerabilities, 1):
+
+        for _i, vuln in enumerate(scan_result.vulnerabilities, 1):
             test_case = f'''    <testcase name="{self._escape_xml(vuln.title)}" classname="sentinel.{vuln.attack_type.value}" time="0.1">
       <failure message="{self._escape_xml(vuln.description[:200])}" type="{vuln.severity.value.upper()}">
 {self._escape_xml(vuln.proof_of_concept)}
       </failure>
     </testcase>'''
             test_cases.append(test_case)
-        
+
         # Build test cases for clean endpoints (no vulnerabilities)
         vulnerable_endpoints = {v.endpoint.full_path for v in scan_result.vulnerabilities}
         for ep in scan_result.endpoints_tested:
             if ep.full_path not in vulnerable_endpoints:
                 test_cases.append(f'''    <testcase name="Security test for {ep.method.value} {ep.path}" classname="sentinel.security" time="0.1" />''')
-        
+
         return f'''<?xml version="1.0" encoding="UTF-8"?>
 <testsuite name="Sentinel Security Scan" tests="{len(test_cases)}" failures="{scan_result.vulnerability_count}" errors="0" skipped="0" time="{scan_result.duration_seconds}">
 {chr(10).join(test_cases)}
 </testsuite>'''
-    
+
     def save(self, scan_result: ScanResult) -> str:
         """Generate and save the JUnit report."""
         content = self.generate(scan_result)
-        
+
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(self.output_path, 'w', encoding='utf-8') as f:
             f.write(content)
-        
+
         return str(self.output_path)
-    
+
     def _escape_xml(self, text: str) -> str:
         """Escape XML special characters."""
         if not text:

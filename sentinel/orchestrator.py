@@ -2,7 +2,7 @@
 Minimal autonomous orchestrator loop for Sentinel v3.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 from .attacks import (
     AuthBypassAttacker,
@@ -42,7 +42,7 @@ class SentinelOrchestrator:
         timeout: int = 5,
         max_iterations: int = 5,
         max_tasks: int = 50,
-        endpoints: Optional[list[Endpoint]] = None,
+        endpoints: list[Endpoint] | None = None,
     ):
         self.target_url = target_url.rstrip("/")
         self.timeout = timeout
@@ -146,7 +146,7 @@ class SentinelOrchestrator:
             ]
         return [candidate_text]
 
-    def _extract_auth_token(self, task: ScanTask) -> Optional[str]:
+    def _extract_auth_token(self, task: ScanTask) -> str | None:
         """Extract an auth token from the task artifacts if present."""
         for key in (
             "auth_token",

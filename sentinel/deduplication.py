@@ -12,16 +12,9 @@ This ensures:
 
 import hashlib
 from dataclasses import dataclass, field
-from typing import Optional
 from datetime import datetime
 
-from .models import (
-    Endpoint,
-    AttackType,
-    Severity,
-    Vulnerability,
-    AttackResult
-)
+from .models import AttackResult, AttackType, Endpoint, Severity, Vulnerability
 
 
 @dataclass
@@ -47,14 +40,14 @@ class GroupedVulnerability:
     title: str = ""
     description: str = ""
     recommendation: str = ""
-    cwe_id: Optional[str] = None
-    owasp_category: Optional[str] = None
+    cwe_id: str | None = None
+    owasp_category: str | None = None
     references: list[str] = field(default_factory=list)
-    
+
     @property
     def evidence_count(self) -> int:
         return len(self.evidence_list)
-    
+
     def add_evidence(self, result: AttackResult, technique: str = "unknown"):
         """Add evidence from an attack result."""
         evidence = Evidence(
@@ -70,10 +63,10 @@ class GroupedVulnerability:
 
 class VulnerabilityDeduplicator:
     """Deduplicates vulnerability findings by root cause, not payload."""
-    
+
     def __init__(self):
         self.findings: dict[str, GroupedVulnerability] = {}
-    
+
     def _generate_finding_key(
         self,
         endpoint: Endpoint,
@@ -83,14 +76,14 @@ class VulnerabilityDeduplicator:
         endpoint_id = f"{endpoint.method.value}:{endpoint.path}"
         key_data = f"{endpoint_id}|{attack_type.value}|{root_cause}"
         return hashlib.sha256(key_data.encode()).hexdigest()[:16]
-    
+
     def _determine_root_cause(
         self,
         attack_type: AttackType,
         result: AttackResult
     ) -> str:
         extra_data = result.extra_data or {}
-        
+
         if attack_type == AttackType.SQL_INJECTION:
             technique = extra_data.get('technique', 'error_based')
             if 'time_based' in technique:
@@ -101,7 +94,7 @@ class VulnerabilityDeduplicator:
                 return "sql_injection_union_based"
             else:
                 return "sql_injection_error_based"
-        
+
         elif attack_type == AttackType.SSRF:
             ssrf_type = extra_data.get('ssrf_type', 'basic')
             if 'cloud_metadata' in ssrf_type:
@@ -114,7 +107,7 @@ class VulnerabilityDeduplicator:
                 return "ssrf_blind"
             else:
                 return "ssrf_basic"
-        
+
         elif attack_type == AttackType.AUTH_BYPASS:
             if result.response_status == 200:
                 if not result.payload or result.payload == "none":
@@ -124,7 +117,7 @@ class VulnerabilityDeduplicator:
                 else:
                     return "auth_invalid_token_accepted"
             return "auth_bypass_unknown"
-        
+
         elif attack_type == AttackType.JWT:
             vuln_type = extra_data.get('vulnerability_type', '')
             if 'none' in vuln_type.lower():
@@ -135,39 +128,39 @@ class VulnerabilityDeduplicator:
                 return "jwt_algorithm_confusion"
             else:
                 return "jwt_validation_flaw"
-        
+
         elif attack_type == AttackType.XSS:
             context = extra_data.get('xss_context', 'unknown')
             return f"xss_{context}_context"
-        
+
         elif attack_type == AttackType.RATE_LIMIT:
             return "rate_limit_missing"
-        
+
         elif attack_type == AttackType.IDOR:
             return "idor_missing_authorization"
-        
+
         elif attack_type == AttackType.BOLA:
             return "bola_missing_object_authorization"
-        
+
         elif attack_type == AttackType.BFLA:
             return "bfla_missing_function_authorization"
-        
+
         elif attack_type == AttackType.MASS_ASSIGNMENT:
             return "mass_assignment_unfiltered_properties"
-        
+
         elif attack_type == AttackType.EXCESSIVE_DATA:
             return "excessive_data_exposure"
-        
+
         elif attack_type == AttackType.NOSQL_INJECTION:
             technique = extra_data.get('technique', 'operator')
             return f"nosql_injection_{technique}"
-        
+
         elif attack_type == AttackType.CMD_INJECTION:
             return "command_injection"
-        
+
         else:
             return f"{attack_type.value}_unknown"
-    
+
     def add_finding(
         self,
         result: AttackResult,
@@ -176,7 +169,7 @@ class VulnerabilityDeduplicator:
     ) -> bool:
         root_cause = self._determine_root_cause(result.attack_type, result)
         key = self._generate_finding_key(endpoint, result.attack_type, root_cause)
-        
+
         if key in self.findings:
             self.findings[key].add_evidence(result, technique)
             return False
@@ -186,7 +179,7 @@ class VulnerabilityDeduplicator:
                 result.attack_type, root_cause, endpoint, extra_data
             )
             confidence = self._calculate_initial_confidence(result, extra_data)
-            
+
             grouped = GroupedVulnerability(
                 endpoint=endpoint,
                 attack_type=result.attack_type,
@@ -203,7 +196,7 @@ class VulnerabilityDeduplicator:
             grouped.add_evidence(result, technique)
             self.findings[key] = grouped
             return True
-    
+
     def _determine_severity(
         self,
         attack_type: AttackType,
@@ -226,12 +219,12 @@ class VulnerabilityDeduplicator:
             AttackType.MASS_ASSIGNMENT: Severity.MEDIUM,
             AttackType.EXCESSIVE_DATA: Severity.MEDIUM,
         }.get(attack_type, Severity.MEDIUM)
-        
+
         if 'cloud_metadata' in root_cause:
             base_severity = Severity.CRITICAL
         elif 'file_read' in root_cause:
             base_severity = Severity.CRITICAL
-        
+
         path_lower = endpoint.path.lower()
         if '/admin' in path_lower or '/manage' in path_lower:
             if base_severity == Severity.MEDIUM:
@@ -241,7 +234,7 @@ class VulnerabilityDeduplicator:
         elif '/login' in path_lower or '/auth' in path_lower:
             if base_severity == Severity.MEDIUM:
                 base_severity = Severity.HIGH
-        
+
         if attack_type == AttackType.RATE_LIMIT:
             if '/login' in path_lower or '/auth' in path_lower:
                 base_severity = Severity.HIGH
@@ -249,9 +242,9 @@ class VulnerabilityDeduplicator:
                 base_severity = Severity.MEDIUM
             else:
                 base_severity = Severity.LOW
-        
+
         return base_severity
-    
+
     def _calculate_initial_confidence(self, result: AttackResult, extra_data: dict) -> float:
         confidence = 0.5
         if result.response_status == 200:
@@ -267,14 +260,14 @@ class VulnerabilityDeduplicator:
         if result.duration_ms and result.duration_ms > 1000:
             confidence += 0.05
         return min(1.0, confidence)
-    
+
     def _generate_title(self, endpoint: Endpoint, attack_type: AttackType, root_cause: str) -> str:
         root_cause_readable = root_cause.replace('_', ' ').title()
         return f"{root_cause_readable} in {endpoint.method.value} {endpoint.path}"
-    
+
     def _generate_description(self, endpoint: Endpoint, attack_type: AttackType, root_cause: str) -> str:
         return f"{attack_type.value.replace('_', ' ').title()} vulnerability detected in {endpoint.path}."
-    
+
     def _get_recommendation(self, attack_type: AttackType, root_cause: str) -> str:
         recommendations = {
             'sql_injection': "Use parameterized queries and input validation.",
@@ -287,7 +280,7 @@ class VulnerabilityDeduplicator:
             if key in root_cause:
                 return rec
         return "Review and remediate the identified security issue."
-    
+
     def _get_cwe_id(self, attack_type: AttackType, root_cause: str) -> str:
         cwe_mapping = {
             'sql_injection': "CWE-89",
@@ -304,7 +297,7 @@ class VulnerabilityDeduplicator:
             if key in root_cause:
                 return cwe
         return "CWE-200"
-    
+
     def _get_owasp_category(self, attack_type: AttackType) -> str:
         owasp_mapping = {
             AttackType.SQL_INJECTION: "A03:2021 - Injection",
@@ -321,7 +314,7 @@ class VulnerabilityDeduplicator:
             AttackType.MASS_ASSIGNMENT: "API6:2023 - Mass Assignment",
         }
         return owasp_mapping.get(attack_type, "A01:2021 - Broken Access Control")
-    
+
     def _get_references(self, attack_type: AttackType) -> list[str]:
         references = {
             AttackType.SQL_INJECTION: [
@@ -332,10 +325,10 @@ class VulnerabilityDeduplicator:
             ],
         }
         return references.get(attack_type, [])
-    
+
     def get_unique_vulnerabilities(self) -> list[GroupedVulnerability]:
         return list(self.findings.values())
-    
+
     def get_statistics(self) -> dict:
         vulns = self.get_unique_vulnerabilities()
         severity_counts = {
@@ -352,14 +345,14 @@ class VulnerabilityDeduplicator:
             'by_attack_type': self._count_by_attack_type(vulns),
             'average_confidence': sum(v.confidence for v in vulns) / len(vulns) if vulns else 0,
         }
-    
+
     def _count_by_attack_type(self, vulns: list[GroupedVulnerability]) -> dict:
         counts = {}
         for v in vulns:
             key = v.attack_type.value
             counts[key] = counts.get(key, 0) + 1
         return counts
-    
+
     def to_vulnerability_models(self) -> list[Vulnerability]:
         models = []
         for grouped in self.get_unique_vulnerabilities():
@@ -369,7 +362,7 @@ class VulnerabilityDeduplicator:
                 f"Confidence: {grouped.confidence:.0%}",
                 f"Evidence Count: {grouped.evidence_count}",
             ]
-            
+
             vuln = Vulnerability(
                 endpoint=grouped.endpoint,
                 attack_type=grouped.attack_type,
@@ -386,7 +379,7 @@ class VulnerabilityDeduplicator:
             )
             models.append(vuln)
         return models
-    
+
     def _severity_to_cvss(self, severity: Severity) -> float:
         mapping = {
             Severity.CRITICAL: 9.5,

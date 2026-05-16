@@ -8,11 +8,10 @@ v2.5 Feature: Agentic OWASP ZAP
 """
 
 import re
-from typing import Optional
 from dataclasses import dataclass
 from enum import Enum
 
-from .models import Endpoint, Severity
+from .models import Severity
 
 
 class PassiveFindingType(Enum):
@@ -23,28 +22,28 @@ class PassiveFindingType(Enum):
     SERVER_HEADER = "server_header"
     DEBUG_INFO = "debug_info"
     STACK_TRACE = "stack_trace"
-    
+
     # Security Headers
     MISSING_SECURITY_HEADER = "missing_security_header"
     INSECURE_HEADER = "insecure_header"
     CORS_MISCONFIG = "cors_misconfig"
-    
+
     # Sensitive Data
     SENSITIVE_DATA_EXPOSURE = "sensitive_data_exposure"
     CREDENTIAL_LEAK = "credential_leak"
     TOKEN_EXPOSURE = "token_exposure"
     PII_EXPOSURE = "pii_exposure"
-    
+
     # Authentication/Session
     WEAK_AUTH = "weak_authentication"
     SESSION_ISSUE = "session_issue"
     COOKIE_SECURITY = "cookie_security"
-    
+
     # API Specific
     EXCESSIVE_DATA = "excessive_data"
     RATE_LIMIT_MISSING = "rate_limit_missing"
     CACHE_CONTROL = "cache_control_issue"
-    
+
     # Content Issues
     ERROR_MESSAGE = "error_message"
     INSECURE_LINK = "insecure_link"
@@ -62,17 +61,17 @@ class PassiveFinding:
     location: str  # header, body, url
     remediation: str
     confidence: float = 0.8
-    cwe_id: Optional[int] = None
-    owasp_category: Optional[str] = None
+    cwe_id: int | None = None
+    owasp_category: str | None = None
 
 
 class PassiveScanner:
     """
     Passive security scanner that analyzes HTTP traffic.
-    
+
     Detects security issues without sending any attack payloads.
     """
-    
+
     # Security headers that should be present
     RECOMMENDED_SECURITY_HEADERS = {
         'X-Content-Type-Options': {
@@ -111,7 +110,7 @@ class PassiveScanner:
             'remediation': 'Add Permissions-Policy header to restrict browser features'
         }
     }
-    
+
     # Patterns for sensitive data detection
     SENSITIVE_PATTERNS = [
         # API Keys and Tokens
@@ -123,50 +122,50 @@ class PassiveScanner:
          'Access Token', Severity.HIGH, 'CWE-798'),
         (r'(?i)(auth[_-]?token|authtoken)["\s:=]+["\']?([a-zA-Z0-9_\-\.]{20,})["\']?',
          'Auth Token', Severity.HIGH, 'CWE-798'),
-        
+
         # Passwords
         (r'(?i)(password|passwd|pwd)["\s:=]+["\']?([^\s"\']{4,})["\']?',
          'Password', Severity.CRITICAL, 'CWE-798'),
-        
+
         # AWS Keys
         (r'AKIA[0-9A-Z]{16}',
          'AWS Access Key', Severity.CRITICAL, 'CWE-798'),
         (r'(?i)aws[_-]?secret[_-]?access[_-]?key["\s:=]+["\']?([a-zA-Z0-9/+=]{40})["\']?',
          'AWS Secret Key', Severity.CRITICAL, 'CWE-798'),
-        
+
         # Private Keys
         (r'-----BEGIN (?:RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----',
          'Private Key', Severity.CRITICAL, 'CWE-798'),
-        
+
         # JWT Tokens
         (r'eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*',
          'JWT Token', Severity.MEDIUM, 'CWE-798'),
-        
+
         # Credit Cards
         (r'\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|3[0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})\b',
          'Credit Card Number', Severity.CRITICAL, 'CWE-798'),
-        
+
         # SSN
         (r'\b[0-9]{3}-[0-9]{2}-[0-9]{4}\b',
          'Social Security Number', Severity.CRITICAL, 'CWE-359'),
-        
+
         # Email addresses (potential PII)
         (r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
          'Email Address', Severity.LOW, 'CWE-359'),
-        
+
         # IP addresses (internal)
         (r'\b(?:10\.(?:\d{1,3}\.){2}\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.(?:\d{1,3}\.)\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b',
          'Internal IP Address', Severity.MEDIUM, 'CWE-200'),
-        
+
         # Database connection strings
         (r'(?i)(mysql|postgres|mongodb|redis)://[^\s"\']+',
          'Database Connection String', Severity.CRITICAL, 'CWE-798'),
-        
+
         # Generic secrets
         (r'(?i)(secret|private|confidential)["\s:=]+["\']?([a-zA-Z0-9_\-]{16,})["\']?',
          'Secret Value', Severity.HIGH, 'CWE-798'),
     ]
-    
+
     # Server version patterns
     VERSION_PATTERNS = [
         (r'Server:\s*([A-Za-z-]+)/([0-9.]+)', 'Server'),
@@ -174,7 +173,7 @@ class PassiveScanner:
         (r'X-AspNet-Version:\s*([0-9.]+)', 'ASP.NET'),
         (r'X-Runtime:\s*([0-9.]+)', 'Runtime'),
     ]
-    
+
     # Framework fingerprint patterns
     FRAMEWORK_PATTERNS = [
         (r'laravel_session', 'Laravel', Severity.INFO),
@@ -186,7 +185,7 @@ class PassiveScanner:
         (r'_rails_session', 'Ruby on Rails', Severity.INFO),
         (r'connect\.sid', 'Express.js/Node.js', Severity.INFO),
     ]
-    
+
     # Error patterns indicating vulnerability
     ERROR_PATTERNS = [
         (r'SQL syntax.*?MySQL', 'MySQL Error', Severity.MEDIUM, 'CWE-209'),
@@ -200,10 +199,10 @@ class PassiveScanner:
         (r'Warning:\s*.*?\s*on line \d+', 'PHP Warning', Severity.LOW, 'CWE-209'),
         (r'Fatal error:\s*', 'PHP Fatal Error', Severity.MEDIUM, 'CWE-209'),
     ]
-    
+
     def __init__(self):
         self.findings: list[PassiveFinding] = []
-    
+
     def analyze_response(
         self,
         url: str,
@@ -215,7 +214,7 @@ class PassiveScanner:
     ) -> list[PassiveFinding]:
         """
         Analyze an HTTP response for security issues.
-        
+
         Args:
             url: Request URL
             method: HTTP method
@@ -223,42 +222,42 @@ class PassiveScanner:
             response_headers: Response headers
             response_body: Response body (string)
             status_code: HTTP status code
-            
+
         Returns:
             List of passive findings
         """
         findings = []
-        
+
         # Check security headers
         findings.extend(self._check_security_headers(response_headers, url))
-        
+
         # Check for sensitive data in response
         findings.extend(self._check_sensitive_data(response_body, url))
-        
+
         # Check for version disclosure
         findings.extend(self._check_version_disclosure(response_headers, url))
-        
+
         # Check for framework disclosure
         findings.extend(self._check_framework_disclosure(response_headers, response_body, url))
-        
+
         # Check for error messages
         findings.extend(self._check_error_messages(response_body, url))
-        
+
         # Check CORS configuration
         findings.extend(self._check_cors(response_headers, url))
-        
+
         # Check cookie security
         findings.extend(self._check_cookies(response_headers, url))
-        
+
         # Check cache control
         findings.extend(self._check_cache_control(response_headers, url))
-        
+
         return findings
-    
+
     def _check_security_headers(self, headers: dict, url: str) -> list[PassiveFinding]:
         """Check for missing security headers."""
         findings = []
-        
+
         for header_name, info in self.RECOMMENDED_SECURITY_HEADERS.items():
             if header_name.lower() not in [h.lower() for h in headers.keys()]:
                 findings.append(PassiveFinding(
@@ -272,19 +271,19 @@ class PassiveScanner:
                     confidence=0.9,
                     owasp_category='A05:2021 - Security Misconfiguration'
                 ))
-        
+
         return findings
-    
+
     def _check_sensitive_data(self, body: str, url: str) -> list[PassiveFinding]:
         """Check for sensitive data in response body."""
         findings = []
-        
+
         for pattern, name, severity, cwe in self.SENSITIVE_PATTERNS:
             matches = re.findall(pattern, body)
             if matches:
                 # Filter out common false positives
                 filtered_matches = self._filter_false_positives(matches, name)
-                
+
                 if filtered_matches:
                     findings.append(PassiveFinding(
                         finding_type=PassiveFindingType.SENSITIVE_DATA_EXPOSURE,
@@ -298,9 +297,9 @@ class PassiveScanner:
                         cwe_id=int(cwe.split('-')[1]) if '-' in cwe else int(cwe),
                         owasp_category='A01:2021 - Broken Access Control'
                     ))
-        
+
         return findings
-    
+
     def _filter_false_positives(self, matches: list, data_type: str) -> list:
         """Filter out common false positives."""
         # Placeholder values that are not real secrets
@@ -308,22 +307,22 @@ class PassiveScanner:
             'xxx', 'placeholder', 'example', 'sample', 'test', 'dummy',
             'your_key_here', 'insert_key', 'changeme', 'default'
         }
-        
+
         filtered = []
         for match in matches:
             if isinstance(match, tuple):
                 match = match[-1] if match else ''
-            
+
             match_lower = match.lower()
             if not any(p in match_lower for p in placeholders):
                 filtered.append(match)
-        
+
         return filtered
-    
+
     def _check_version_disclosure(self, headers: dict, url: str) -> list[PassiveFinding]:
         """Check for server version disclosure."""
         findings = []
-        
+
         for pattern, source in self.VERSION_PATTERNS:
             for header, value in headers.items():
                 match = re.search(pattern, f"{header}: {value}", re.IGNORECASE)
@@ -340,15 +339,15 @@ class PassiveScanner:
                         cwe_id=200,
                         owasp_category='A05:2021 - Security Misconfiguration'
                     ))
-        
+
         return findings
-    
+
     def _check_framework_disclosure(self, headers: dict, body: str, url: str) -> list[PassiveFinding]:
         """Check for framework fingerprint disclosure."""
         findings = []
-        
+
         combined = str(headers) + body
-        
+
         for pattern, framework, severity in self.FRAMEWORK_PATTERNS:
             if re.search(pattern, combined, re.IGNORECASE):
                 findings.append(PassiveFinding(
@@ -363,13 +362,13 @@ class PassiveScanner:
                     cwe_id=200,
                     owasp_category='A05:2021 - Security Misconfiguration'
                 ))
-        
+
         return findings
-    
+
     def _check_error_messages(self, body: str, url: str) -> list[PassiveFinding]:
         """Check for sensitive error messages."""
         findings = []
-        
+
         for pattern, error_type, severity, cwe in self.ERROR_PATTERNS:
             if re.search(pattern, body, re.IGNORECASE | re.DOTALL):
                 findings.append(PassiveFinding(
@@ -384,18 +383,18 @@ class PassiveScanner:
                     cwe_id=int(cwe.split('-')[1]) if '-' in cwe else int(cwe),
                     owasp_category='A05:2021 - Security Misconfiguration'
                 ))
-        
+
         return findings
-    
+
     def _check_cors(self, headers: dict, url: str) -> list[PassiveFinding]:
         """Check for CORS misconfiguration."""
         findings = []
-        
+
         cors_headers = {k.lower(): v for k, v in headers.items()}
-        
+
         # Check for overly permissive CORS
         acao = cors_headers.get('access-control-allow-origin', '')
-        
+
         if acao == '*':
             findings.append(PassiveFinding(
                 finding_type=PassiveFindingType.CORS_MISCONFIG,
@@ -409,7 +408,7 @@ class PassiveScanner:
                 cwe_id=942,
                 owasp_category='A01:2021 - Broken Access Control'
             ))
-        
+
         # Check for credentials with wildcard
         acac = cors_headers.get('access-control-allow-credentials', '')
         if acao == '*' and acac.lower() == 'true':
@@ -418,29 +417,29 @@ class PassiveScanner:
                 severity=Severity.HIGH,
                 title="Dangerous CORS Configuration",
                 description="CORS allows credentials with wildcard origin - critical security issue",
-                evidence=f"Access-Control-Allow-Origin: *, Access-Control-Allow-Credentials: true",
+                evidence="Access-Control-Allow-Origin: *, Access-Control-Allow-Credentials: true",
                 location='header',
                 remediation="Never use wildcard origin when credentials are allowed",
                 confidence=1.0,
                 cwe_id=942,
                 owasp_category='A01:2021 - Broken Access Control'
             ))
-        
+
         return findings
-    
+
     def _check_cookies(self, headers: dict, url: str) -> list[PassiveFinding]:
         """Check cookie security attributes."""
         findings = []
-        
+
         set_cookie = headers.get('Set-Cookie', '') or headers.get('set-cookie', '')
-        
+
         if set_cookie:
             cookies = [set_cookie] if isinstance(set_cookie, str) else set_cookie
-            
+
             for cookie in cookies:
                 cookie_lower = cookie.lower()
                 cookie_name = cookie.split('=')[0] if '=' in cookie else cookie
-                
+
                 # Check Secure flag
                 if 'secure' not in cookie_lower and 'https' in url.lower():
                     findings.append(PassiveFinding(
@@ -455,7 +454,7 @@ class PassiveScanner:
                         cwe_id=614,
                         owasp_category='A05:2021 - Security Misconfiguration'
                     ))
-                
+
                 # Check HttpOnly flag
                 if 'httponly' not in cookie_lower:
                     findings.append(PassiveFinding(
@@ -470,7 +469,7 @@ class PassiveScanner:
                         cwe_id=1004,
                         owasp_category='A05:2021 - Security Misconfiguration'
                     ))
-                
+
                 # Check SameSite attribute
                 if 'samesite' not in cookie_lower:
                     findings.append(PassiveFinding(
@@ -485,20 +484,20 @@ class PassiveScanner:
                         cwe_id=1275,
                         owasp_category='A01:2021 - Broken Access Control'
                     ))
-        
+
         return findings
-    
+
     def _check_cache_control(self, headers: dict, url: str) -> list[PassiveFinding]:
         """Check cache control headers."""
         findings = []
-        
+
         cache_control = headers.get('Cache-Control', '') or headers.get('cache-control', '')
-        
+
         # Check if sensitive data might be cached
         if not cache_control or 'private' not in cache_control.lower():
             pragma = headers.get('Pragma', '') or headers.get('pragma', '')
-            expires = headers.get('Expires', '') or headers.get('expires', '')
-            
+            headers.get('Expires', '') or headers.get('expires', '')
+
             if not cache_control and not pragma:
                 findings.append(PassiveFinding(
                     finding_type=PassiveFindingType.CACHE_CONTROL,
@@ -512,37 +511,37 @@ class PassiveScanner:
                     cwe_id=525,
                     owasp_category='A05:2021 - Security Misconfiguration'
                 ))
-        
+
         return findings
-    
+
     def analyze_request(
         self,
         url: str,
         method: str,
         headers: dict,
-        body: Optional[str] = None
+        body: str | None = None
     ) -> list[PassiveFinding]:
         """
         Analyze an HTTP request for security issues.
-        
+
         Args:
             url: Request URL
             method: HTTP method
             headers: Request headers
             body: Optional request body
-            
+
         Returns:
             List of passive findings
         """
         findings = []
-        
+
         # Check for sensitive data in URL
         url_findings = self._check_sensitive_data(url, url)
         for f in url_findings:
             f.location = 'url'
             f.title = f"{f.title} (in URL)"
             findings.append(f)
-        
+
         # Check for sensitive data in request body
         if body:
             body_findings = self._check_sensitive_data(body, url)
@@ -550,7 +549,7 @@ class PassiveScanner:
                 f.location = 'request_body'
                 f.title = f"{f.title} (in request body)"
                 findings.append(f)
-        
+
         # Check for insecure cookies being sent
         cookie_header = headers.get('Cookie', '') or headers.get('cookie', '')
         if cookie_header and url.startswith('http://'):
@@ -566,7 +565,7 @@ class PassiveScanner:
                 cwe_id=311,
                 owasp_category='A02:2021 - Cryptographic Failures'
             ))
-        
+
         return findings
 
 

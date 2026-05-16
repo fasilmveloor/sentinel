@@ -3,7 +3,6 @@ Minimal task queue support for autonomous scanning.
 """
 
 from collections import deque
-from typing import Optional
 
 from .models import ScanTask
 
@@ -25,7 +24,7 @@ class TaskQueue:
         self._signatures.add(signature)
         return True
 
-    def pop(self) -> Optional[ScanTask]:
+    def pop(self) -> ScanTask | None:
         """Pop the next task, or None when empty."""
         if not self._queue:
             return None
